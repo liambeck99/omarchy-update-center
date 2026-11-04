@@ -25,6 +25,7 @@
       "checkSystem": true,
       "checkAur": true,
       "checkMise": true,
+      "ignoreMiseCooldown": true,
       "checkOmarchy": true,
       "showCount": true,
       "highlightOverdue": true
@@ -79,6 +80,13 @@
         "type": "boolean",
         "label": "Check mise tools",
         "description": "Tools managed by mise. Hidden when mise isn't installed.",
+        "defaultValue": true
+      },
+      {
+        "key": "ignoreMiseCooldown",
+        "type": "boolean",
+        "label": "Count mise releases still in cooldown",
+        "description": "Count mise tool versions that mise is still holding back, as omarchy-update would install them. Off lists only what a plain mise outdated shows.",
         "defaultValue": true
       },
       {

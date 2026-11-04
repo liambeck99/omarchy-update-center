@@ -26,7 +26,7 @@ Panel {
   readonly property int reminderDays: Math.max(1, setting("reminderDays", 7))
   readonly property int checkIntervalHours: Math.max(1, setting("checkIntervalHours", 6))
   readonly property int reminderRepeatHours: Math.max(1, setting("reminderRepeatHours", 24))
-  readonly property string skip: Model.skipList(settings)
+  readonly property var statusArgs: Model.statusArgs(settings)
   readonly property bool showCount: setting("showCount", true) !== false
   readonly property bool highlightOverdue: setting("highlightOverdue", true) !== false
   readonly property bool barCount: showCount && pending > 0
@@ -61,7 +61,7 @@ Panel {
     if (statusProc.running) return
     root.checking = true
     root.lastCheckStartedAt = Date.now() / 1000
-    statusProc.command = root.skip === "" ? [root.statusScript] : [root.statusScript, "--skip", root.skip]
+    statusProc.command = [root.statusScript].concat(root.statusArgs)
     statusProc.running = true
   }
 
@@ -150,7 +150,7 @@ Panel {
     checkIfStale()
   }
 
-  onSkipChanged: if (root.status) check()
+  onStatusArgsChanged: if (root.status) check()
 
   IpcHandler {
     target: "liambeck99.update-center"

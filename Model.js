@@ -77,6 +77,16 @@ function skipList(settings) {
   return skip.join(",")
 }
 
+// Arguments for the status script, from the panel's settings. Mise releases
+// inside mise's own cooldown are counted unless ignoreMiseCooldown is off.
+function statusArgs(settings) {
+  var args = []
+  if (settings && settings.ignoreMiseCooldown === false) args.push("--respect-mise-cooldown")
+  var skip = skipList(settings)
+  if (skip !== "") args.push("--skip", skip)
+  return args
+}
+
 // When to nag. A reminder is only ever sent while updates are waiting and the
 // last full upgrade is older than reminderDays; after the first it repeats
 // every repeatHours until an upgrade happens.
@@ -184,7 +194,7 @@ function tooltip(plan, pending, busy) {
 if (typeof module !== "undefined") {
   module.exports = {
     SOURCES: SOURCES, parseStatus: parseStatus, mergeStatus: mergeStatus, groups: groups,
-    pendingCount: pendingCount, hasErrors: hasErrors, skipList: skipList, reminderPlan: reminderPlan,
+    pendingCount: pendingCount, hasErrors: hasErrors, skipList: skipList, statusArgs: statusArgs, reminderPlan: reminderPlan,
     duration: duration, ago: ago, when: when, headline: headline, reminderRow: reminderRow,
     notificationBody: notificationBody, tooltip: tooltip
   }

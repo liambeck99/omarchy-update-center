@@ -1,4 +1,10 @@
 #!/bin/bash
-# Fake mise outdated --json: STUB_MISE_OUT, STUB_MISE_EXIT
+# Fake mise outdated --json: STUB_MISE_OUT, STUB_MISE_EXIT. When
+# STUB_MISE_COOLDOWN_OUT is set, that is printed instead if MISE_MINIMUM_RELEASE_AGE=0
+# is not in the environment (the cooldown applies).
+if [[ -n ${STUB_MISE_COOLDOWN_OUT:-} && ${MISE_MINIMUM_RELEASE_AGE:-} != 0 ]]; then
+  printf '%s' "$STUB_MISE_COOLDOWN_OUT"
+  exit 0
+fi
 printf '%s' "${STUB_MISE_OUT:-{\}}"
 exit "${STUB_MISE_EXIT:-0}"

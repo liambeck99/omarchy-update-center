@@ -88,6 +88,14 @@ describe("status handling", () => {
     expect(Model.skipList({ checkAur: false, checkMise: false, checkSystem: true })).toBe("aur,mise")
     expect(Model.skipList({})).toBe("")
   })
+
+  test("statusArgs adds the cooldown flag only when ignoreMiseCooldown is off", () => {
+    expect(Model.statusArgs({})).toEqual([])
+    expect(Model.statusArgs({ ignoreMiseCooldown: true })).toEqual([])
+    expect(Model.statusArgs({ ignoreMiseCooldown: false })).toEqual(["--respect-mise-cooldown"])
+    expect(Model.statusArgs({ ignoreMiseCooldown: false, checkAur: false }))
+      .toEqual(["--respect-mise-cooldown", "--skip", "aur"])
+  })
 })
 
 describe("wording", () => {

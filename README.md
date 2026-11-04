@@ -73,6 +73,7 @@ They're stored on the widget's entry in `~/.config/omarchy/shell.json`, which yo
 | `checkSystem` | true | Check official repository packages (`checkupdates`) |
 | `checkAur` | true | Check AUR packages (`yay -Qua`) |
 | `checkMise` | true | Check mise tools (`mise outdated`) |
+| `ignoreMiseCooldown` | true | Count mise versions still inside mise's release-age cooldown, as `omarchy-update` would install them (off matches a plain `mise outdated`) |
 | `checkOmarchy` | true | Show a new Omarchy release as its own line |
 | `showCount` | true | Show the number of waiting updates next to the bar icon (off keeps the icon a fixed width) |
 | `highlightOverdue` | true | Colour the bar icon with the theme's urgent colour when overdue (off keeps the bar's normal colour; the panel still says you're overdue) |
@@ -83,7 +84,7 @@ Everything is read-only and needs no root:
 
 - **System:** `checkupdates`, which syncs into a temporary database and never touches your real one.
 - **AUR:** `yay -Qua`.
-- **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install.
+- **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install. Set `ignoreMiseCooldown` to false to respect mise's own cooldown instead.
 - **Last updated:** the most recent `starting full system upgrade` line in `/var/log/pacman.log`. It counts upgrades from `omarchy-update` and from a hand-run `pacman -Syu`.
 - **Update running:** once a minute it checks Omarchy's update lock and pacman's `db.lck`, and checks again when an update finishes.
 

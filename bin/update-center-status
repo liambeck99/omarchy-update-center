@@ -2,7 +2,8 @@
 
 # Collect everything Update Center shows, as one JSON document on stdout.
 #
-#   update-center-status [--skip system,aur,mise,omarchy]   full check (uses the network)
+#   update-center-status [--respect-mise-cooldown] [--skip system,aur,mise,omarchy]
+#                                                             full check (uses the network)
 #   update-center-status busy                                 is an update running right now?
 #
 # Each source reports {enabled, available, ok, error, packages[]}, where a
@@ -17,6 +18,7 @@ PACMAN_LOG=${UPDATE_CENTER_PACMAN_LOG:-/var/log/pacman.log}
 PACMAN_LOCK=${UPDATE_CENTER_PACMAN_LOCK:-/var/lib/pacman/db.lck}
 UPDATE_LOCK=${UPDATE_CENTER_UPDATE_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock}
 CHECK_TIMEOUT=${UPDATE_CENTER_TIMEOUT:-120}
+RESPECT_MISE_COOLDOWN=
 
 # omarchy-update holds its lock for the whole run (pacman, AUR, mise), and a
 # hand-run pacman holds db.lck. Either one means an update is in progress.
@@ -107,9 +109,15 @@ check_mise() {
 
   local out err status packages
   err=$(mktemp)
-  # Same cooldown override as omarchy-update-mise, so the count matches what
-  # an update would actually install.
-  out=$(MISE_MINIMUM_RELEASE_AGE=0 timeout "$CHECK_TIMEOUT" mise outdated --json 2>"$err")
+  # By default, the same cooldown override as omarchy-update-mise, so the count
+  # matches what an update would actually install. With --respect-mise-cooldown
+  # mise's own release-age setting applies, as it does for a plain
+  # `mise outdated`.
+  if [[ -n $RESPECT_MISE_COOLDOWN ]]; then
+    out=$(timeout "$CHECK_TIMEOUT" mise outdated --json 2>"$err")
+  else
+    out=$(MISE_MINIMUM_RELEASE_AGE=0 timeout "$CHECK_TIMEOUT" mise outdated --json 2>"$err")
+  fi
   status=$?
 
   if ((status == 124)); then
@@ -177,6 +185,11 @@ full_check() {
   '
 }
 
+if [[ ${1:-} == --respect-mise-cooldown ]]; then
+  RESPECT_MISE_COOLDOWN=1
+  shift
+fi
+
 case "${1:-}" in
   busy)
     busy && echo '{"busy":true}' || echo '{"busy":false}'
@@ -188,7 +201,7 @@ case "${1:-}" in
     full_check ""
     ;;
   *)
-    echo "Usage: update-center-status [--skip system,aur,mise,omarchy] | busy" >&2
+    echo "Usage: update-center-status [--respect-mise-cooldown] [--skip system,aur,mise,omarchy] | busy" >&2
     exit 2
     ;;
 esac

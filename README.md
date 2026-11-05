@@ -83,7 +83,7 @@ Everything is read-only and needs no root:
 
 - **System:** `checkupdates`, which syncs into a temporary database and never touches your real one.
 - **AUR:** `yay -Qua`.
-- **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install.
+- **mise:** `mise outdated` (tools that are declared but not installed yet, such as lazy ones, are not counted), with the same release-age override `omarchy-update` uses, so counts match what an update would install.
 - **Last updated:** the most recent `starting full system upgrade` line in `/var/log/pacman.log`. It counts upgrades from `omarchy-update` and from a hand-run `pacman -Syu`.
 - **Update running:** once a minute it checks Omarchy's update lock and pacman's `db.lck`, and checks again when an update finishes.
 

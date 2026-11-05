@@ -115,7 +115,10 @@ check_mise() {
   if ((status == 124)); then
     source_json true true false "Timed out checking mise tools" '[]'
   elif ((status != 0)) || ! packages=$(jq -c '
-      to_entries | map({name: .key, from: (.value.current // ""), to: (.value.latest // "")})
+      # Tools declared but not installed (e.g. lazy ones) have no current
+      # version; installing one on first use is not an update.
+      to_entries | map(select((.value.current // "") != ""))
+      | map({name: .key, from: (.value.current // ""), to: (.value.latest // "")})
     ' <<<"${out:-{\}}" 2>/dev/null); then
     source_json true true false "$(first_line "$(cat "$err")" || echo "mise outdated failed")" '[]'
   else

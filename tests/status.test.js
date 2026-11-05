@@ -57,6 +57,18 @@ describe("update-center-status", () => {
     expect(json.sources.mise.packages).toEqual([{ name: "node", from: "26.12.1", to: "26.13.0" }])
   })
 
+  test("mise tools that aren't installed (no current version) are not updates", () => {
+    const { json } = run({
+      STUB_MISE_OUT: JSON.stringify({
+        node: { current: "26.12.1", latest: "26.13.0", requested: "latest" },
+        amp: { current: null, latest: "1.0.0", requested: "latest" },
+        codex: { current: "", latest: "2.0.0", requested: "latest" },
+      }),
+    })
+    expect(json.sources.mise.ok).toBe(true)
+    expect(json.sources.mise.packages).toEqual([{ name: "node", from: "26.12.1", to: "26.13.0" }])
+  })
+
   test("nothing pending is ok everywhere, including yay's exit 1", () => {
     const { json } = run()
     for (const key of ["system", "aur", "mise", "omarchy"]) {

@@ -5,7 +5,8 @@ var SOURCES = [
   { key: "system", label: "System", setting: "checkSystem" },
   { key: "aur", label: "AUR", setting: "checkAur" },
   { key: "mise", label: "mise", setting: "checkMise" },
-  { key: "omarchy", label: "Omarchy", setting: "checkOmarchy" }
+  { key: "omarchy", label: "Omarchy", setting: "checkOmarchy" },
+  { key: "plugins", label: "Plugins", setting: "checkPlugins" }
 ]
 
 var DAY = 86400
@@ -176,6 +177,21 @@ function notificationBody(now, lastUpdate, pending) {
   return plural(pending, "update") + " waiting · last updated " + ago(now, lastUpdate) + ". Click to update."
 }
 
+// Flags for bin/update-all: which kinds of update are actually waiting.
+function updateArgs(status) {
+  var rows = groups(status)
+  var system = false, plugins = false
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].packages.length === 0) continue
+    if (rows[i].key === "plugins") plugins = true
+    else system = true
+  }
+  var args = []
+  if (system) args.push("--system")
+  if (plugins) args.push("--plugins")
+  return args
+}
+
 function tooltip(plan, pending, busy) {
   if (busy) return "Updating…"
   return headline(plan, pending)
@@ -186,6 +202,6 @@ if (typeof module !== "undefined") {
     SOURCES: SOURCES, parseStatus: parseStatus, mergeStatus: mergeStatus, groups: groups,
     pendingCount: pendingCount, hasErrors: hasErrors, skipList: skipList, reminderPlan: reminderPlan,
     duration: duration, ago: ago, when: when, headline: headline, reminderRow: reminderRow,
-    notificationBody: notificationBody, tooltip: tooltip
+    notificationBody: notificationBody, tooltip: tooltip, updateArgs: updateArgs
   }
 }

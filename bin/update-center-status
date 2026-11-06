@@ -2,7 +2,7 @@
 
 # Collect everything Update Center shows, as one JSON document on stdout.
 #
-#   update-center-status [--skip system,aur,mise,omarchy]   full check (uses the network)
+#   update-center-status [--skip system,aur,mise,plugins,omarchy]   full check (uses the network)
 #   update-center-status busy                                 is an update running right now?
 #
 # Each source reports {enabled, available, ok, error, packages[]}, where a
@@ -17,6 +17,7 @@ PACMAN_LOG=${UPDATE_CENTER_PACMAN_LOG:-/var/log/pacman.log}
 PACMAN_LOCK=${UPDATE_CENTER_PACMAN_LOCK:-/var/lib/pacman/db.lck}
 UPDATE_LOCK=${UPDATE_CENTER_UPDATE_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock}
 CHECK_TIMEOUT=${UPDATE_CENTER_TIMEOUT:-120}
+PLUGINS_DIR=${UPDATE_CENTER_PLUGINS_DIR:-${HOME:-}/.config/omarchy/plugins}
 
 # omarchy-update holds its lock for the whole run (pacman, AUR, mise), and a
 # hand-run pacman holds db.lck. Either one means an update is in progress.
@@ -124,6 +125,60 @@ check_mise() {
   rm -f "$err"
 }
 
+# One plugin: fetch its upstream HEAD (as omarchy-plugin-update does) and print
+# a {name, from, to} line when it is behind, or "ERR <id>" when the fetch fails.
+check_one_plugin() {
+  local dir=$1 id behind version remote note=""
+  id=$(basename "$dir")
+  # Normally "origin"; a checkout that was re-pointed may only have another remote.
+  remote=origin
+  git -C "$dir" remote get-url origin >/dev/null 2>&1 || remote=$(git -C "$dir" remote | head -n1)
+  if [[ -z $remote ]] || ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
+    timeout "$CHECK_TIMEOUT" git -C "$dir" fetch --quiet "$remote" HEAD 2>/dev/null; then
+    echo "ERR $id"
+    return
+  fi
+  behind=$(git -C "$dir" rev-list --count HEAD..FETCH_HEAD 2>/dev/null) || behind=0
+  ((behind > 0)) || return 0
+  version=$(jq -r '.version // empty' "$dir/manifest.json" 2>/dev/null)
+  # Local edits make omarchy-plugin-update refuse to fast-forward; say so.
+  [[ -n $(git -C "$dir" status --porcelain 2>/dev/null) ]] && note=", has local edits"
+  jq -n -c --arg name "$id" --arg from "${version:-installed}" \
+    --arg to "$behind new change$( ((behind == 1)) || echo s)$note" \
+    '{name: $name, from: $from, to: $to}'
+}
+
+check_plugins() {
+  if ! command -v git >/dev/null || [[ ! -d $PLUGINS_DIR ]]; then
+    source_json true false true "" '[]'
+    return
+  fi
+
+  local dir out failed packages any=false ptmp
+  ptmp=$(mktemp -d)
+  for dir in "$PLUGINS_DIR"/*/; do
+    [[ -d $dir/.git ]] || continue
+    any=true
+    check_one_plugin "${dir%/}" >"$ptmp/$(basename "$dir")" &
+  done
+  wait
+  if ! $any; then
+    rm -rf "$ptmp"
+    source_json true false true "" '[]'
+    return
+  fi
+
+  out=$(cat "$ptmp"/* 2>/dev/null)
+  rm -rf "$ptmp"
+  failed=$(grep '^ERR ' <<<"$out" | cut -d' ' -f2- | paste -sd, - | sed 's/,/, /g')
+  packages=$(grep -v '^ERR ' <<<"$out" | jq -s -c '.')
+  if [[ -n $failed ]]; then
+    source_json true true false "Couldn't reach: $failed" "$packages"
+  else
+    source_json true true true "" "$packages"
+  fi
+}
+
 disabled_json() { source_json false false true "" '[]'; }
 
 full_check() {
@@ -132,7 +187,7 @@ full_check() {
   trap 'rm -rf "$tmp"' EXIT
 
   # The checks are independent network round-trips; run them side by side.
-  for source in system aur mise; do
+  for source in system aur mise plugins; do
     if [[ $skip == *",$source,"* ]]; then
       disabled_json >"$tmp/$source" &
     else
@@ -154,7 +209,8 @@ full_check() {
     --argjson omarchyInstalled "$({ pacman -Qq omarchy || pacman -Qq omarchy-dev; } >/dev/null 2>&1 && echo true || echo false)" \
     --slurpfile system "$tmp/system" \
     --slurpfile aur "$tmp/aur" \
-    --slurpfile mise "$tmp/mise" '
+    --slurpfile mise "$tmp/mise" \
+    --slurpfile plugins "$tmp/plugins" '
     def is_omarchy: .name == "omarchy" or .name == "omarchy-dev";
     ($system[0]) as $sys
     | {
@@ -165,6 +221,7 @@ full_check() {
           system: ($sys | .packages |= map(select(is_omarchy | not))),
           aur: $aur[0],
           mise: $mise[0],
+          plugins: $plugins[0],
           omarchy: {
             enabled: $omarchyEnabled,
             available: ($omarchyInstalled and $sys.enabled),
@@ -188,7 +245,7 @@ case "${1:-}" in
     full_check ""
     ;;
   *)
-    echo "Usage: update-center-status [--skip system,aur,mise,omarchy] | busy" >&2
+    echo "Usage: update-center-status [--skip system,aur,mise,plugins,omarchy] | busy" >&2
     exit 2
     ;;
 esac

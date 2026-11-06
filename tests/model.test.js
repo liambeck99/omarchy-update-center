@@ -88,6 +88,10 @@ describe("status handling", () => {
     expect(Model.skipList({ checkAur: false, checkMise: false, checkSystem: true })).toBe("aur,mise")
     expect(Model.skipList({})).toBe("")
   })
+
+  test("skipList includes plugins when turned off", () => {
+    expect(Model.skipList({ checkPlugins: false })).toBe("plugins")
+  })
 })
 
 describe("wording", () => {
@@ -130,5 +134,28 @@ describe("reminderRow", () => {
   })
   test("unknown last update", () => {
     expect(row(null, 2).value).toBe("off, last update unknown")
+  })
+})
+
+describe("updateArgs", () => {
+  const source = (packages) => ({ enabled: true, available: true, ok: true, error: "", packages })
+  const pkg = [{ name: "x", from: "1", to: "2" }]
+  const status = (sources) => ({
+    sources: { system: source([]), aur: source([]), mise: source([]), omarchy: source([]), plugins: source([]), ...sources },
+  })
+
+  test("nothing waiting asks for nothing", () => {
+    expect(Model.updateArgs(status({}))).toEqual([])
+  })
+  test("only plugins waiting skips the system update", () => {
+    expect(Model.updateArgs(status({ plugins: source(pkg) }))).toEqual(["--plugins"])
+  })
+  test("any non-plugin source means a system update", () => {
+    for (const key of ["system", "aur", "mise", "omarchy"]) {
+      expect(Model.updateArgs(status({ [key]: source(pkg) }))).toEqual(["--system"])
+    }
+  })
+  test("both waiting asks for both", () => {
+    expect(Model.updateArgs(status({ mise: source(pkg), plugins: source(pkg) }))).toEqual(["--system", "--plugins"])
   })
 })

@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Run every kind of update Update Center lists, under the Omarchy update lock
+# so the bar shows "Updating…" for the whole run.
+#
+#   update-all [--plugins] [--system]
+#
+# --plugins: omarchy-plugin-update, which shows each plugin's changes and asks
+#            before applying them. Runs first: it is quick and never reboots.
+# --system:  omarchy-update (packages, AUR, mise, Omarchy). It sees the lock
+#            is already held and carries on.
+
+if ! omarchy-update-lock held; then
+  exec omarchy-update-lock run "$0" "$@"
+fi
+
+plugins=false system=false
+for arg; do
+  case $arg in
+    --plugins) plugins=true ;;
+    --system) system=true ;;
+  esac
+done
+
+if $plugins; then
+  echo "Updating shell plugins…"
+  echo
+  omarchy-plugin-update || echo "Some plugins were not updated (see above)."
+  echo
+fi
+
+if $system; then
+  exec omarchy-update
+fi

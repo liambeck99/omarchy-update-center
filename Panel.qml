@@ -21,7 +21,13 @@ Panel {
   readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, ""))
   readonly property string statusScript: pluginDir + "bin/update-center-status"
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/liambeck99.update-center"
-  readonly property string updateCommand: "omarchy-launch-floating-terminal-with-presentation omarchy-update"
+  readonly property string updateScript: pluginDir + "bin/update-all"
+  // With nothing pending (no reminder fires then) fall back to a plain system update.
+  readonly property var updateArgs: {
+    var a = Model.updateArgs(status)
+    return a.length > 0 ? a : ["--system"]
+  }
+  readonly property string updateCommand: "omarchy-launch-floating-terminal-with-presentation " + updateScript + " " + updateArgs.join(" ")
 
   readonly property int reminderDays: Math.max(1, setting("reminderDays", 7))
   readonly property int checkIntervalHours: Math.max(1, setting("checkIntervalHours", 6))
@@ -91,8 +97,8 @@ Panel {
       "omarchy-notification-send", "-g", "", "-u", "normal",
       "Time to update",
       Model.notificationBody(root.now, root.lastUpdate, root.pending),
-      "--exec", "omarchy-launch-floating-terminal-with-presentation", "omarchy-update"
-    ])
+      "--exec", "omarchy-launch-floating-terminal-with-presentation", root.updateScript
+    ].concat(root.updateArgs))
     rememberReminder(Math.floor(root.now))
   }
 
@@ -460,13 +466,29 @@ Panel {
 
                   Text {
                     id: pkgName
+                    // Plugins carry a link to their new changes; older cached
+                    // results and other sources have none.
+                    readonly property string link: typeof modelData.url === "string" ? modelData.url : ""
                     width: Math.min(implicitWidth, (group.width - Style.space(22)) * 0.5)
                     elide: Text.ElideRight
                     textFormat: Text.PlainText
                     text: modelData.name
-                    color: root.foreground
+                    color: pkgLink.containsMouse ? Commons.Color.accent : root.foreground
+                    font.underline: pkgLink.containsMouse
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
+
+                    MouseArea {
+                      id: pkgLink
+                      anchors.fill: parent
+                      enabled: pkgName.link !== ""
+                      hoverEnabled: enabled
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        Quickshell.execDetached(["xdg-open", pkgName.link])
+                        root.close()
+                      }
+                    }
                   }
 
                   Text {
@@ -518,7 +540,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             iconText: ""
             text: root.busy ? "Updating…" : "Update now"
-            tooltipText: root.busy ? "An update is already running" : "Run omarchy-update"
+            tooltipText: root.busy ? "An update is already running" : "Update everything listed"
             fontSize: Style.font.bodySmall
             foreground: root.foreground
             fontFamily: root.fontFamily

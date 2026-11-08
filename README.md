@@ -12,7 +12,7 @@ Most update indicators alert you whenever something new appears. Update Center s
 - **Panel** (left-click):
   - your status, and when you last ran a full system upgrade
   - when the next reminder is due
-  - pending updates per source, which you can expand to see each package's old → new version
+  - pending updates per source, which you can expand to see each package's old → new version. Click a plugin's name to open its new commits on GitHub (or its repo page on other hosts), or an AUR package's name to open its AUR page
   - when it last checked, and an **Update now** button that opens the same floating `omarchy-update` terminal as the Omarchy menu
 - **Right-click:** check now.
 - **Reminder:** a notification once your last full upgrade is older than 7 days *and* updates are waiting. It repeats daily until you update, and clicking it starts the update. Nothing is waiting? No reminder.
@@ -74,6 +74,7 @@ They're stored on the widget's entry in `~/.config/omarchy/shell.json`, which yo
 | `checkAur` | true | Check AUR packages (`yay -Qua`) |
 | `checkMise` | true | Check mise tools (`mise outdated`) |
 | `checkOmarchy` | true | Show a new Omarchy release as its own line |
+| `checkPlugins` | true | Check shell plugins installed from git (`omarchy plugin add`) |
 | `showCount` | true | Show the number of waiting updates next to the bar icon (off keeps the icon a fixed width) |
 | `highlightOverdue` | true | Colour the bar icon with the theme's urgent colour when overdue (off keeps the bar's normal colour; the panel still says you're overdue) |
 
@@ -84,10 +85,13 @@ Everything is read-only and needs no root:
 - **System:** `checkupdates`, which syncs into a temporary database and never touches your real one.
 - **AUR:** `yay -Qua`.
 - **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install.
+- **Plugins:** `git fetch origin HEAD` in each git-managed plugin, as `omarchy plugin update` does. Fetching only updates the plugin's git metadata, not its files. A plugin with uncommitted changes is marked "has local edits", because `omarchy plugin update` may refuse to apply it.
 - **Last updated:** the most recent `starting full system upgrade` line in `/var/log/pacman.log`. It counts upgrades from `omarchy-update` and from a hand-run `pacman -Syu`.
 - **Update running:** once a minute it checks Omarchy's update lock and pacman's `db.lck`, and checks again when an update finishes.
 
 Checks run 45 seconds after login, every `checkIntervalHours`, when you open the panel (at most every two minutes), and after updates. The time of the last reminder is kept in `~/.local/state/liambeck99.update-center/state.json`, so restarting the shell doesn't repeat a reminder.
+
+**Update now** and the reminder run `bin/update-all`, which only updates the kinds of update that are waiting. It holds Omarchy's update lock for the whole run, runs `omarchy-plugin-update` first (it shows each plugin's changes and asks before applying them), then `omarchy-update`.
 
 A source that fails to check (for example, while you're offline) shows its error, keeps its previous results, and never triggers a reminder on its own.
 

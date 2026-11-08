@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll } from "bun:test"
-import { mkdtempSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs"
+import { existsSync, mkdtempSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -19,7 +19,7 @@ beforeAll(() => {
   // stub reads as "tool not installed".
   binDir = join(dir, "bin")
   mkdirSync(binDir)
-  for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env"]) {
+  for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env", "git", "basename", "head", "paste"]) {
     symlinkSync(Bun.which(tool), join(binDir, tool))
   }
 })
@@ -98,6 +98,7 @@ describe("update-center-status", () => {
     expect(json.sources.aur).toMatchObject({ available: false, ok: true })
     expect(json.sources.mise).toMatchObject({ available: false, ok: true })
     expect(json.sources.omarchy.available).toBe(false)
+    expect(json.sources.plugins).toMatchObject({ available: false, ok: true })
   })
 
   test("busy follows pacman's lock and a held omarchy-update lock", () => {
@@ -116,5 +117,99 @@ describe("update-center-status", () => {
 
   test("a missing pacman log gives a null last update", () => {
     expect(run({ UPDATE_CENTER_PACMAN_LOG: join(dir, "nope.log") }).json.lastUpdate).toBeNull()
+  })
+
+  describe("plugins", () => {
+    const gitEnv = {
+      PATH: process.env.PATH,
+      GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com",
+      GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com",
+    }
+    function git(cwd, ...args) {
+      const proc = Bun.spawnSync(["git", ...args], { cwd, env: gitEnv })
+      if (proc.exitCode !== 0) throw new Error(proc.stderr.toString())
+    }
+    function commit(repo, file, text) {
+      writeFileSync(join(repo, file), text)
+      git(repo, "add", ".")
+      git(repo, "commit", "-qm", file)
+    }
+    // An upstream repo and a plugin cloned from it, as omarchy plugin add does.
+    function plugin(root, id) {
+      const upstream = join(root, "upstream", id)
+      mkdirSync(upstream, { recursive: true })
+      git(upstream, "init", "-q", "-b", "main")
+      commit(upstream, "manifest.json", '{"version":"1.2.3"}')
+      git(root, "clone", "-q", upstream, join(root, "plugins", id))
+      return { upstream, checkout: join(root, "plugins", id) }
+    }
+    function pluginsRoot() {
+      const root = mkdtempSync(join(tmpdir(), "update-center-plugins-"))
+      mkdirSync(join(root, "plugins"))
+      return root
+    }
+    const check = (root, args) => run({ UPDATE_CENTER_PLUGINS_DIR: join(root, "plugins") }, args).json.sources.plugins
+
+    test("lists only plugins that are behind, with their version and change count", () => {
+      const root = pluginsRoot()
+      plugin(root, "current")
+      const one = plugin(root, "one.behind")
+      commit(one.upstream, "a", "1")
+      const two = plugin(root, "two.behind")
+      commit(two.upstream, "a", "1")
+      commit(two.upstream, "b", "2")
+      const source = check(root)
+      expect(source).toMatchObject({ enabled: true, available: true, ok: true })
+      expect(source.packages).toEqual([
+        { name: "one.behind", from: "1.2.3", to: "1 new change", url: "" },
+        { name: "two.behind", from: "1.2.3", to: "2 new changes", url: "" },
+      ])
+    })
+
+    test("checking does not change the plugin's files or commit", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "behind")
+      commit(p.upstream, "new-file", "1")
+      expect(check(root).packages).toHaveLength(1)
+      expect(existsSync(join(p.checkout, "new-file"))).toBe(false)
+    })
+
+    test("a plugin with local edits says so", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "edited")
+      commit(p.upstream, "a", "1")
+      writeFileSync(join(p.checkout, "manifest.json"), '{"version":"1.2.3","local":true}')
+      expect(check(root).packages[0].to).toBe("1 new change, has local edits")
+    })
+
+    test("an unreachable plugin is named without hiding the others", () => {
+      const root = pluginsRoot()
+      const gone = plugin(root, "gone")
+      git(gone.checkout, "remote", "set-url", "origin", join(root, "does-not-exist"))
+      const p = plugin(root, "behind")
+      commit(p.upstream, "a", "1")
+      const source = check(root)
+      expect(source.ok).toBe(false)
+      expect(source.error).toBe("Couldn't reach: gone")
+      expect(source.packages.map(x => x.name)).toEqual(["behind"])
+    })
+
+    test("folders that are not git checkouts are ignored", () => {
+      const root = pluginsRoot()
+      mkdirSync(join(root, "plugins", "local-only"))
+      expect(check(root)).toMatchObject({ available: false, ok: true, packages: [] })
+    })
+
+    test("a missing plugins folder is unavailable rather than failing", () => {
+      const root = mkdtempSync(join(tmpdir(), "update-center-plugins-"))
+      expect(check(root)).toMatchObject({ available: false, ok: true, packages: [] })
+    })
+
+    test("--skip plugins does not fetch", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "behind")
+      commit(p.upstream, "a", "1")
+      expect(check(root, ["--skip", "plugins"])).toMatchObject({ enabled: false, ok: true, packages: [] })
+    })
   })
 })

@@ -466,13 +466,29 @@ Panel {
 
                   Text {
                     id: pkgName
+                    // Plugins carry a link to their new changes; older cached
+                    // results and other sources have none.
+                    readonly property string link: typeof modelData.url === "string" ? modelData.url : ""
                     width: Math.min(implicitWidth, (group.width - Style.space(22)) * 0.5)
                     elide: Text.ElideRight
                     textFormat: Text.PlainText
                     text: modelData.name
-                    color: root.foreground
+                    color: pkgLink.containsMouse ? Commons.Color.accent : root.foreground
+                    font.underline: pkgLink.containsMouse
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
+
+                    MouseArea {
+                      id: pkgLink
+                      anchors.fill: parent
+                      enabled: pkgName.link !== ""
+                      hoverEnabled: enabled
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        Quickshell.execDetached(["xdg-open", pkgName.link])
+                        root.close()
+                      }
+                    }
                   }
 
                   Text {

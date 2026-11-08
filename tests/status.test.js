@@ -161,8 +161,8 @@ describe("update-center-status", () => {
       const source = check(root)
       expect(source).toMatchObject({ enabled: true, available: true, ok: true })
       expect(source.packages).toEqual([
-        { name: "one.behind", from: "1.2.3", to: "1 new change" },
-        { name: "two.behind", from: "1.2.3", to: "2 new changes" },
+        { name: "one.behind", from: "1.2.3", to: "1 new change", url: "" },
+        { name: "two.behind", from: "1.2.3", to: "2 new changes", url: "" },
       ])
     })
 

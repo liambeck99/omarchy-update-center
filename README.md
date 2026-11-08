@@ -12,7 +12,7 @@ Most update indicators alert you whenever something new appears. Update Center s
 - **Panel** (left-click):
   - your status, and when you last ran a full system upgrade
   - when the next reminder is due
-  - pending updates per source, which you can expand to see each package's old → new version
+  - pending updates per source, which you can expand to see each package's old → new version. Click a plugin's name to open its new commits on GitHub (or its repo page on other hosts), or an AUR package's name to open its AUR page
   - when it last checked, and an **Update now** button that opens the same floating `omarchy-update` terminal as the Omarchy menu
 - **Right-click:** check now.
 - **Reminder:** a notification once your last full upgrade is older than 7 days *and* updates are waiting. It repeats daily until you update, and clicking it starts the update. Nothing is waiting? No reminder.

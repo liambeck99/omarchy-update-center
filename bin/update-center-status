@@ -95,7 +95,9 @@ check_aur() {
   elif [[ -n $message ]]; then
     source_json true true false "$(first_line "$message")" '[]'
   else
-    source_json true true true "" "$(arrow_lines_to_json <<<"$out")"
+    # Each AUR package links to its page there (the panel opens it on click).
+    source_json true true true "" "$(arrow_lines_to_json <<<"$out" |
+      jq -c 'map(. + {url: ("https://aur.archlinux.org/packages/" + (.name | @uri))})')"
   fi
   rm -f "$err"
 }
@@ -125,10 +127,54 @@ check_mise() {
   rm -f "$err"
 }
 
+# A git remote URL as a page a browser can open: https only, no ".git", no
+# user or token. Prints nothing for local paths or anything not recognised.
+browse_url() {
+  local url=$1 host path
+  case $url in
+    https://* | http://* | ssh://* | git://*)
+      url=${url#*://}
+      host=${url%%/*}
+      path=${url#*/}
+      [[ $path == "$url" ]] && return 0
+      ;;
+    *@*:*) # scp-like: git@github.com:owner/repo.git
+      url=${url#*@}
+      host=${url%%:*}
+      path=${url#*:}
+      ;;
+    *) return 0 ;;
+  esac
+  host=${host##*@}
+  host=${host%%:*}
+  path=${path%/}
+  path=${path%.git}
+  path=${path#/}
+  [[ -n $host && -n $path && $host != *[[:space:]]* && $path != *[[:space:]]* ]] || return 0
+  printf 'https://%s/%s\n' "$host" "$path"
+}
+
+# Where to see what changed: on GitHub, a compare page from the last commit we
+# share with upstream to upstream's new head; elsewhere the repo page.
+plugin_changes_url() {
+  local dir=$1 remote=$2 page base new
+  page=$(browse_url "$(git -C "$dir" remote get-url "$remote" 2>/dev/null)")
+  [[ -n $page ]] || return 0
+  if [[ $page == https://github.com/*/* ]]; then
+    base=$(git -C "$dir" merge-base HEAD FETCH_HEAD 2>/dev/null)
+    new=$(git -C "$dir" rev-parse FETCH_HEAD 2>/dev/null)
+    if [[ -n $base && -n $new ]]; then
+      echo "$page/compare/$base...$new"
+      return 0
+    fi
+  fi
+  echo "$page"
+}
+
 # One plugin: fetch its upstream HEAD (as omarchy-plugin-update does) and print
-# a {name, from, to} line when it is behind, or "ERR <id>" when the fetch fails.
+# a {name, from, to, url} line when it is behind, or "ERR <id>" when the fetch fails.
 check_one_plugin() {
-  local dir=$1 id behind version remote note=""
+  local dir=$1 id behind version remote url note=""
   id=$(basename "$dir")
   # Normally "origin"; a checkout that was re-pointed may only have another remote.
   remote=origin
@@ -143,9 +189,10 @@ check_one_plugin() {
   version=$(jq -r '.version // empty' "$dir/manifest.json" 2>/dev/null)
   # Local edits make omarchy-plugin-update refuse to fast-forward; say so.
   [[ -n $(git -C "$dir" status --porcelain 2>/dev/null) ]] && note=", has local edits"
+  url=$(plugin_changes_url "$dir" "$remote")
   jq -n -c --arg name "$id" --arg from "${version:-installed}" \
-    --arg to "$behind new change$( ((behind == 1)) || echo s)$note" \
-    '{name: $name, from: $from, to: $to}'
+    --arg to "$behind new change$( ((behind == 1)) || echo s)$note" --arg url "$url" \
+    '{name: $name, from: $from, to: $to, url: $url}'
 }
 
 check_plugins() {

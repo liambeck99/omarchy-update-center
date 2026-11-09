@@ -108,14 +108,18 @@ check_mise() {
   local out err status packages
   err=$(mktemp)
   # Same cooldown override as omarchy-update-mise, so the count matches what
-  # an update would actually install.
+  # an update would actually install. Tools that are configured but not
+  # installed (e.g. Omarchy's lazy optional tools) report current=null; `mise up`
+  # skips them, so they are not pending updates.
   out=$(MISE_MINIMUM_RELEASE_AGE=0 timeout "$CHECK_TIMEOUT" mise outdated --json 2>"$err")
   status=$?
 
   if ((status == 124)); then
     source_json true true false "Timed out checking mise tools" '[]'
   elif ((status != 0)) || ! packages=$(jq -c '
-      to_entries | map({name: .key, from: (.value.current // ""), to: (.value.latest // "")})
+      to_entries
+      | map(select((.value.current // "") != ""))
+      | map({name: .key, from: .value.current, to: (.value.latest // "")})
     ' <<<"${out:-{\}}" 2>/dev/null); then
     source_json true true false "$(first_line "$(cat "$err")" || echo "mise outdated failed")" '[]'
   else

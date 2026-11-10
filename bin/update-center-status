@@ -115,7 +115,12 @@ check_mise() {
   if ((status == 124)); then
     source_json true true false "Timed out checking mise tools" '[]'
   elif ((status != 0)) || ! packages=$(jq -c '
-      to_entries | map({name: .key, from: (.value.current // ""), to: (.value.latest // "")})
+      # A lazy tool that has never been installed has current = null. mise
+      # reports it as [MISSING], but `mise up` will not install it, so counting
+      # it as a pending update would never clear.
+      to_entries
+      | map(select(.value.current != null and .value.current != ""))
+      | map({name: .key, from: .value.current, to: (.value.latest // "")})
     ' <<<"${out:-{\}}" 2>/dev/null); then
     source_json true true false "$(first_line "$(cat "$err")" || echo "mise outdated failed")" '[]'
   else

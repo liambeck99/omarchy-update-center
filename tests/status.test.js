@@ -34,6 +34,8 @@ function run(env = {}, args = [], { withTools = ["checkupdates", "yay", "mise", 
       UPDATE_CENTER_PACMAN_LOG: log,
       UPDATE_CENTER_PACMAN_LOCK: join(dir, "db.lck"),
       UPDATE_CENTER_UPDATE_LOCK: join(dir, "update.lock"),
+      UPDATE_CENTER_PLUGIN_LOCK: join(dir, "plugin.lock"),
+      UPDATE_CENTER_PLUGINS_DIR: join(dir, "plugins"),
       ...env,
     },
   })
@@ -100,7 +102,7 @@ describe("update-center-status", () => {
     expect(json.sources.omarchy.available).toBe(false)
   })
 
-  test("busy follows pacman's lock and a held omarchy-update lock", () => {
+  test("busy follows pacman's lock, omarchy-update lock, and plugin lock", () => {
     expect(run({}, ["busy"]).json.busy).toBe(false)
     writeFileSync(join(dir, "db.lck"), "")
     expect(run({}, ["busy"]).json.busy).toBe(true)
@@ -112,6 +114,46 @@ describe("update-center-status", () => {
     Bun.sleepSync(200)
     expect(run({}, ["busy"]).json.busy).toBe(true)
     holder.kill()
+
+    const pluginLock = join(dir, "plugin.lock")
+    writeFileSync(pluginLock, "")
+    const pHolder = Bun.spawn(["flock", pluginLock, "sleep", "5"])
+    Bun.sleepSync(200)
+    expect(run({}, ["busy"]).json.busy).toBe(true)
+    pHolder.kill()
+  })
+
+  test("checks git-managed plugins and detects fast-forward updates", () => {
+    try { symlinkSync(Bun.which("git"), join(binDir, "git")) } catch {}
+    const pRoot = mkdtempSync(join(tmpdir(), "update-center-plugins-"))
+    const remoteRepo = join(pRoot, "remote")
+    const pluginsDir = join(pRoot, "plugins")
+    const cloneDir = join(pluginsDir, "demo.widget")
+    mkdirSync(remoteRepo, { recursive: true })
+    mkdirSync(pluginsDir, { recursive: true })
+
+    const gitEnv = {
+      GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "t@e.st",
+      GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "t@e.st"
+    }
+    Bun.spawnSync(["git", "init", "-b", "main", remoteRepo])
+    writeFileSync(join(remoteRepo, "manifest.json"), JSON.stringify({ id: "demo.widget", version: "1.0.0" }))
+    Bun.spawnSync(["git", "-C", remoteRepo, "add", "manifest.json"])
+    Bun.spawnSync(["git", "-C", remoteRepo, "commit", "-m", "v1"], { env: { ...process.env, ...gitEnv } })
+
+    Bun.spawnSync(["git", "clone", remoteRepo, cloneDir])
+
+    writeFileSync(join(remoteRepo, "manifest.json"), JSON.stringify({ id: "demo.widget", version: "1.1.0" }))
+    Bun.spawnSync(["git", "-C", remoteRepo, "add", "manifest.json"])
+    Bun.spawnSync(["git", "-C", remoteRepo, "commit", "-m", "v2"], { env: { ...process.env, ...gitEnv } })
+
+    const { json } = run({ UPDATE_CENTER_PLUGINS_DIR: pluginsDir })
+    expect(json.sources.plugins).toMatchObject({
+      enabled: true,
+      available: true,
+      ok: true,
+      packages: [{ name: "demo.widget", from: "1.0.0", to: "1.1.0" }]
+    })
   })
 
   test("a missing pacman log gives a null last update", () => {

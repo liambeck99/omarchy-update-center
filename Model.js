@@ -5,6 +5,7 @@ var SOURCES = [
   { key: "system", label: "System", setting: "checkSystem" },
   { key: "aur", label: "AUR", setting: "checkAur" },
   { key: "mise", label: "mise", setting: "checkMise" },
+  { key: "plugins", label: "Plugins", setting: "checkPlugins" },
   { key: "omarchy", label: "Omarchy", setting: "checkOmarchy" }
 ]
 
@@ -60,6 +61,17 @@ function pendingCount(status) {
   var total = 0
   for (var i = 0; i < rows.length; i++) total += rows[i].packages.length
   return total
+}
+
+function pluginPackages(status) {
+  if (!status || !status.sources || !status.sources.plugins) return []
+  var p = status.sources.plugins
+  if (!p.enabled || !p.available || !Array.isArray(p.packages)) return []
+  return p.packages
+}
+
+function nonPluginPendingCount(status) {
+  return Math.max(0, pendingCount(status) - pluginPackages(status).length)
 }
 
 function hasErrors(status) {
@@ -184,7 +196,8 @@ function tooltip(plan, pending, busy) {
 if (typeof module !== "undefined") {
   module.exports = {
     SOURCES: SOURCES, parseStatus: parseStatus, mergeStatus: mergeStatus, groups: groups,
-    pendingCount: pendingCount, hasErrors: hasErrors, skipList: skipList, reminderPlan: reminderPlan,
+    pendingCount: pendingCount, pluginPackages: pluginPackages, nonPluginPendingCount: nonPluginPendingCount,
+    hasErrors: hasErrors, skipList: skipList, reminderPlan: reminderPlan,
     duration: duration, ago: ago, when: when, headline: headline, reminderRow: reminderRow,
     notificationBody: notificationBody, tooltip: tooltip
   }

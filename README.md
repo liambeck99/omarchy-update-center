@@ -1,6 +1,6 @@
 # Update Center
 
-An [Omarchy](https://omarchy.org) bar widget that keeps track of **how long it's been since you last updated** and reminds you once you're overdue. It shows every pending update in one place: system packages, AUR, mise tools, and Omarchy itself.
+An [Omarchy](https://omarchy.org) bar widget that keeps track of **how long it's been since you last updated** and reminds you once you're overdue. It shows every pending update in one place: system packages, AUR, mise tools, shell plugins, and Omarchy itself.
 
 Most update indicators alert you whenever something new appears. Update Center stays quiet until your last full upgrade is older than a week (adjustable) *and* updates are actually waiting, then reminds you once a day until you update. Updating still goes through `omarchy-update`.
 
@@ -73,6 +73,7 @@ They're stored on the widget's entry in `~/.config/omarchy/shell.json`, which yo
 | `checkSystem` | true | Check official repository packages (`checkupdates`) |
 | `checkAur` | true | Check AUR packages (`yay -Qua`) |
 | `checkMise` | true | Check mise tools (`mise outdated`) |
+| `checkPlugins` | true | Check git-managed Omarchy shell plugins (`~/.config/omarchy/plugins`) |
 | `checkOmarchy` | true | Show a new Omarchy release as its own line |
 | `showCount` | true | Show the number of waiting updates next to the bar icon (off keeps the icon a fixed width) |
 | `highlightOverdue` | true | Colour the bar icon with the theme's urgent colour when overdue (off keeps the bar's normal colour; the panel still says you're overdue) |
@@ -84,6 +85,7 @@ Everything is read-only and needs no root:
 - **System:** `checkupdates`, which syncs into a temporary database and never touches your real one.
 - **AUR:** `yay -Qua`.
 - **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install.
+- **Plugins:** fetches clean git-managed plugins in `~/.config/omarchy/plugins` in parallel and reports fast-forwardable updates, with inline buttons to update individual or all plugins via `omarchy plugin update`.
 - **Last updated:** the most recent `starting full system upgrade` line in `/var/log/pacman.log`. It counts upgrades from `omarchy-update` and from a hand-run `pacman -Syu`.
 - **Update running:** once a minute it checks Omarchy's update lock and pacman's `db.lck`, and checks again when an update finishes.
 

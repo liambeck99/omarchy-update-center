@@ -16,13 +16,17 @@ set -uo pipefail
 PACMAN_LOG=${UPDATE_CENTER_PACMAN_LOG:-/var/log/pacman.log}
 PACMAN_LOCK=${UPDATE_CENTER_PACMAN_LOCK:-/var/lib/pacman/db.lck}
 UPDATE_LOCK=${UPDATE_CENTER_UPDATE_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock}
+PLUGIN_LOCK=${UPDATE_CENTER_PLUGIN_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/update-center-plugins.lock}
+PLUGINS_DIR=${UPDATE_CENTER_PLUGINS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins}
+STATE_DIR=${UPDATE_CENTER_STATE_DIR:-$HOME/.local/state/liambeck99.update-center}
 CHECK_TIMEOUT=${UPDATE_CENTER_TIMEOUT:-120}
 
-# omarchy-update holds its lock for the whole run (pacman, AUR, mise), and a
-# hand-run pacman holds db.lck. Either one means an update is in progress.
+# omarchy-update holds its lock for the whole run (pacman, AUR, mise), a
+# hand-run pacman holds db.lck, and plugin updates hold PLUGIN_LOCK.
 busy() {
   [[ -e $PACMAN_LOCK ]] && return 0
   [[ -e $UPDATE_LOCK ]] && ! flock -n "$UPDATE_LOCK" true 2>/dev/null && return 0
+  [[ -e $PLUGIN_LOCK ]] && ! flock -n "$PLUGIN_LOCK" true 2>/dev/null && return 0
   return 1
 }
 
@@ -124,6 +128,102 @@ check_mise() {
   rm -f "$err"
 }
 
+valid_plugin_id() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && $1 != *..* ]]
+}
+
+# Check one plugin folder:
+#   0 = checked cleanly (prints {name, from, to} JSON if fast-forwardable update exists)
+#   1 = fetch/inspect error
+#   2 = skipped (not a clean branch-tracked git checkout with an origin remote)
+check_one_plugin() {
+  local dir="${1%/}"
+  local id="${dir##*/}"
+  valid_plugin_id "$id" || return 2
+  [[ -d $dir && ! -L $dir && -d $dir/.git && -f $dir/manifest.json ]] || return 2
+  git -C "$dir" remote get-url origin >/dev/null 2>&1 || return 2
+  local head remote changes from_ver to_ver from to
+  head=$(git -C "$dir" rev-parse --verify HEAD 2>/dev/null) || return 2
+  git -C "$dir" symbolic-ref --quiet HEAD >/dev/null 2>&1 || return 2
+  changes=$(git -C "$dir" status --porcelain --untracked-files=normal 2>/dev/null) || return 1
+  [[ -z $changes ]] || return 2
+
+  if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes}" \
+    timeout 20 git -C "$dir" fetch --quiet origin HEAD 2>/dev/null; then
+    return 1
+  fi
+
+  remote=$(git -C "$dir" rev-parse --verify FETCH_HEAD 2>/dev/null || true)
+  [[ -n $remote ]] || return 1
+  [[ $head == "$remote" ]] && return 0
+
+  if git -C "$dir" merge-base --is-ancestor "$head" "$remote" 2>/dev/null; then
+    from_ver=$(jq -r '.version // empty' "$dir/manifest.json" 2>/dev/null || true)
+    to_ver=$(git -C "$dir" show FETCH_HEAD:manifest.json 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+    if [[ -n $from_ver && -n $to_ver && $from_ver != "$to_ver" ]]; then
+      from="$from_ver"
+      to="$to_ver"
+    else
+      from="${head:0:7}"
+      to="${remote:0:7}"
+    fi
+    jq -n -c --arg name "$id" --arg from "${from:0:32}" --arg to "${to:0:32}" \
+      '{name: $name, from: $from, to: $to}'
+  fi
+  return 0
+}
+
+check_plugins() {
+  if ! command -v git >/dev/null; then
+    source_json true false true "" '[]'
+    return
+  fi
+  if [[ ! -d $PLUGINS_DIR ]]; then
+    source_json true true true "" '[]'
+    return
+  fi
+
+  local ptmp dir idx=0
+  ptmp=$(mktemp -d)
+  for dir in "$PLUGINS_DIR"/*/; do
+    [[ -d ${dir%/} && ! -L ${dir%/} && -d ${dir%/}/.git && -f ${dir%/}/manifest.json ]] || continue
+    idx=$((idx + 1))
+    (
+      out=$(check_one_plugin "${dir%/}")
+      rc=$?
+      if (( rc == 0 )); then
+        printf 'ok\n' >"$ptmp/$idx.state"
+        [[ -n $out ]] && printf '%s\n' "$out" >"$ptmp/$idx.pkg"
+      elif (( rc == 1 )); then
+        printf 'err\n' >"$ptmp/$idx.state"
+      fi
+    ) &
+  done
+  wait
+
+  local ok_count=0 err_count=0 packages='[]' f
+  for f in "$ptmp"/*.state; do
+    [[ -e $f ]] || continue
+    if [[ $(<"$f") == "ok" ]]; then
+      ok_count=$((ok_count + 1))
+    else
+      err_count=$((err_count + 1))
+    fi
+  done
+
+  if (( err_count > 0 && ok_count == 0 )); then
+    rm -rf "$ptmp"
+    source_json true true false "Failed to fetch plugin updates" '[]'
+    return
+  fi
+
+  if compgen -G "$ptmp/*.pkg" >/dev/null; then
+    packages=$(jq -s -c 'sort_by(.name)' "$ptmp"/*.pkg)
+  fi
+  rm -rf "$ptmp"
+  source_json true true true "" "$packages"
+}
+
 disabled_json() { source_json false false true "" '[]'; }
 
 full_check() {
@@ -132,7 +232,7 @@ full_check() {
   trap 'rm -rf "$tmp"' EXIT
 
   # The checks are independent network round-trips; run them side by side.
-  for source in system aur mise; do
+  for source in system aur mise plugins; do
     if [[ $skip == *",$source,"* ]]; then
       disabled_json >"$tmp/$source" &
     else
@@ -154,7 +254,8 @@ full_check() {
     --argjson omarchyInstalled "$({ pacman -Qq omarchy || pacman -Qq omarchy-dev; } >/dev/null 2>&1 && echo true || echo false)" \
     --slurpfile system "$tmp/system" \
     --slurpfile aur "$tmp/aur" \
-    --slurpfile mise "$tmp/mise" '
+    --slurpfile mise "$tmp/mise" \
+    --slurpfile plugins "$tmp/plugins" '
     def is_omarchy: .name == "omarchy" or .name == "omarchy-dev";
     ($system[0]) as $sys
     | {
@@ -165,6 +266,7 @@ full_check() {
           system: ($sys | .packages |= map(select(is_omarchy | not))),
           aur: $aur[0],
           mise: $mise[0],
+          plugins: $plugins[0],
           omarchy: {
             enabled: $omarchyEnabled,
             available: ($omarchyInstalled and $sys.enabled),
@@ -177,9 +279,111 @@ full_check() {
   '
 }
 
+update_cached_status() {
+  [[ -f "$STATE_DIR/status.json" ]] || return 0
+  local filter="$1"
+  shift
+  local tmp_status
+  tmp_status=$(mktemp "$STATE_DIR/.status.XXXXXX" 2>/dev/null || true)
+  [[ -n $tmp_status ]] || return 0
+  if jq -c "$@" "$filter" "$STATE_DIR/status.json" >"$tmp_status" 2>/dev/null; then
+    mv -f "$tmp_status" "$STATE_DIR/status.json"
+  else
+    rm -f "$tmp_status"
+  fi
+}
+
+update_plugins() {
+  mkdir -p "$(dirname "$PLUGIN_LOCK")"
+  exec 9>"$PLUGIN_LOCK"
+  flock -n 9 || exit 0
+
+  update_cached_status '.busy = true'
+
+  local ids=("$@")
+  if (( ${#ids[@]} == 0 )); then
+    while IFS= read -r id; do
+      [[ -n $id ]] && ids+=("$id")
+    done < <(check_plugins | jq -r '.packages[].name // empty' 2>/dev/null)
+  fi
+
+  local updated=0 failed=0 id dir changes
+  for id in "${ids[@]}"; do
+    if ! valid_plugin_id "$id"; then
+      failed=$((failed + 1))
+      continue
+    fi
+    dir="$PLUGINS_DIR/$id"
+    if [[ -L $dir || ! -d $dir/.git ]]; then
+      failed=$((failed + 1))
+      continue
+    fi
+    changes=$(git -C "$dir" status --porcelain --untracked-files=normal 2>/dev/null || echo "err")
+    if [[ -n $changes ]]; then
+      failed=$((failed + 1))
+      continue
+    fi
+    # Optimistically remove the plugin from cached status before omarchy-plugin-update
+    # calls rescanPlugins, so the reloaded panel sees the updated count right away.
+    update_cached_status 'if .sources.plugins.packages then .sources.plugins.packages |= map(select(.name != $id)) else . end' --arg id "$id"
+    if timeout 120 omarchy plugin update "$id" --yes; then
+      updated=$((updated + 1))
+    else
+      failed=$((failed + 1))
+    fi
+  done
+
+  if [[ -f "$STATE_DIR/status.json" ]]; then
+    local fresh_plugins
+    fresh_plugins=$(check_plugins)
+    update_cached_status '.checkedAt = $now | .busy = false | .sources.plugins = $p' \
+      --argjson p "$fresh_plugins" --argjson now "$(date +%s)"
+  fi
+
+  flock -u 9
+  exec 9>&-
+
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    if (( failed == 0 && updated > 0 )); then
+      local label="plugins"
+      (( updated == 1 )) && label="plugin"
+      omarchy-notification-send -g "" -u normal "Plugins updated" "Updated $updated $label." >/dev/null 2>&1 || true
+    elif (( failed > 0 )); then
+      omarchy-notification-send -g "" -u critical "Plugin update failed" "Updated $updated, failed $failed." >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if command -v omarchy-shell >/dev/null 2>&1; then
+    sleep 0.3
+    omarchy-shell -q liambeck99.update-center reloadStatus >/dev/null 2>&1 ||
+      omarchy-shell -q liambeck99.update-center refresh >/dev/null 2>&1 || true
+  fi
+
+  (( failed == 0 ))
+}
+
+run_update() {
+  omarchy-update
+  local rc=$?
+  if (( rc == 0 && $# > 0 )); then
+    echo
+    echo "Updating Omarchy plugins..."
+    update_plugins "$@" || rc=$?
+  fi
+  return $rc
+}
+
 case "${1:-}" in
   busy)
     busy && echo '{"busy":true}' || echo '{"busy":false}'
+    ;;
+  update-plugins)
+    shift
+    update_plugins "$@"
+    ;;
+  run-update)
+    shift
+    run_update "$@"
     ;;
   --skip)
     full_check "${2:-}"
@@ -188,7 +392,7 @@ case "${1:-}" in
     full_check ""
     ;;
   *)
-    echo "Usage: update-center-status [--skip system,aur,mise,omarchy] | busy" >&2
+    echo "Usage: update-center-status [--skip system,aur,mise,plugins,omarchy] | busy | update-plugins [id...] | run-update [id...]" >&2
     exit 2
     ;;
 esac

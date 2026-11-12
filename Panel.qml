@@ -48,6 +48,9 @@ Panel {
 
   readonly property var groups: Model.groups(status)
   readonly property int pending: Model.pendingCount(status)
+  readonly property var pluginPackages: Model.pluginPackages(status)
+  readonly property int pluginPending: pluginPackages.length
+  readonly property int nonPluginPending: Model.nonPluginPendingCount(status)
   readonly property var lastUpdate: status ? status.lastUpdate : null
   readonly property var plan: Model.reminderPlan(now, lastUpdate, lastReminderAt, pending, reminderDays, reminderRepeatHours)
   readonly property bool overdue: plan.state === "overdue"
@@ -77,7 +80,18 @@ Panel {
     root.status = Model.mergeStatus(root.status, next)
     root.busy = next.busy === true
     root.now = Date.now() / 1000
+    statusSaveProc.command = ["sh", "-c", 'mkdir -p "$1" && printf \'%s\\n\' "$2" > "$1/status.json"', "sh", root.stateDir, JSON.stringify(root.status)]
+    statusSaveProc.running = true
     evaluateReminder()
+  }
+
+  function loadCachedStatus(text) {
+    var cached = Model.parseStatus(text)
+    if (!cached) return
+    root.status = cached
+    root.busy = cached.busy === true
+    root.now = Date.now() / 1000
+    if (!root.busy) root.awaitingUpdate = false
   }
 
   function evaluateReminder() {
@@ -113,10 +127,30 @@ Panel {
     evaluateReminder()
   }
 
+  function updatePlugins(ids) {
+    if (root.busy) return
+    var targetIds = ids && ids.length > 0 ? ids : root.pluginPackages.map(function(p) { return p.name })
+    if (targetIds.length === 0) return
+    root.busy = true
+    root.awaitingUpdate = true
+    root.awaitingSince = Date.now() / 1000
+    Quickshell.execDetached([root.statusScript, "update-plugins"].concat(targetIds))
+  }
+
   function updateNow() {
     if (root.busy) return
-    if (root.bar) root.bar.run(root.updateCommand)
-    else Quickshell.execDetached(["sh", "-c", root.updateCommand])
+    if (root.pluginPending > 0 && root.nonPluginPending === 0) {
+      updatePlugins([])
+      return
+    }
+    var pluginIds = root.pluginPackages.map(function(p) { return p.name })
+    if (pluginIds.length > 0) {
+      Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", root.statusScript, "run-update"].concat(pluginIds))
+    } else if (root.bar) {
+      root.bar.run(root.updateCommand)
+    } else {
+      Quickshell.execDetached(["sh", "-c", root.updateCommand])
+    }
     root.awaitingUpdate = true
     root.awaitingSince = Date.now() / 1000
     close()
@@ -161,6 +195,8 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): void { root.check() }
+    function reloadStatus(): void { statusFile.reload() }
+    function updatePlugins(): void { root.updatePlugins([]) }
   }
 
   Process {
@@ -176,6 +212,14 @@ Panel {
   }
 
   Process { id: saveProc }
+  Process { id: statusSaveProc }
+
+  FileView {
+    id: statusFile
+    path: root.stateDir + "/status.json"
+    printErrors: false
+    onLoaded: root.loadCachedStatus(text())
+  }
 
   FileView {
     path: root.stateDir + "/state.json"
@@ -220,7 +264,8 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barCount && !vertical ? " " + root.pending : ""
+    text: ""
+    labelText: root.barCount && !vertical ? String(root.pending) : ""
     slotSize: Style.bar.iconSlot * (root.barCount && !vertical ? (root.pending > 9 ? 2 : 1.6) : 1)
     opacity: root.pending > 0 || root.busy ? 1 : 0.55
     active: root.overdue && root.highlightOverdue
@@ -368,6 +413,8 @@ Panel {
               required property var modelData
               readonly property bool canExpand: modelData.packages.length > 0
               readonly property bool isOpen: canExpand && root.expanded[modelData.key] === true
+              readonly property bool isPlugins: modelData.key === "plugins"
+              readonly property bool showInlineUpdate: isPlugins && canExpand
               readonly property int shown: Math.min(modelData.packages.length, 15)
               width: parent.width
               spacing: Style.space(2)
@@ -383,7 +430,7 @@ Panel {
                 Row {
                   id: groupRow
                   anchors.left: parent.left
-                  anchors.right: parent.right
+                  anchors.right: group.showInlineUpdate ? updateGroupBtn.left : parent.right
                   anchors.leftMargin: Style.space(4)
                   anchors.rightMargin: Style.space(4)
                   anchors.verticalCenter: parent.verticalCenter
@@ -425,10 +472,28 @@ Panel {
 
                 MouseArea {
                   id: groupMouse
-                  anchors.fill: parent
+                  anchors.left: parent.left
+                  anchors.right: group.showInlineUpdate ? updateGroupBtn.left : parent.right
+                  anchors.top: parent.top
+                  anchors.bottom: parent.bottom
                   hoverEnabled: true
                   cursorShape: group.canExpand ? Qt.PointingHandCursor : Qt.ArrowCursor
                   onClicked: if (group.canExpand) root.toggleGroup(group.modelData.key)
+                }
+
+                PanelActionButton {
+                  id: updateGroupBtn
+                  visible: group.showInlineUpdate
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(2)
+                  anchors.verticalCenter: parent.verticalCenter
+                  iconText: ""
+                  tooltipText: root.busy ? "Updating…" : "Update all plugins"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  enabled: !root.busy
+                  opacity: enabled ? 1 : 0.4
+                  onClicked: root.updatePlugins([])
                 }
               }
 
@@ -452,32 +517,72 @@ Panel {
               Repeater {
                 model: group.isOpen ? group.modelData.packages.slice(0, group.shown) : []
 
-                Row {
+                Rectangle {
+                  id: pkgItem
                   required property var modelData
                   width: group.width
-                  spacing: Style.space(8)
-                  leftPadding: Style.space(22)
+                  implicitHeight: pkgRow.implicitHeight + (group.isPlugins ? Style.space(4) : 0)
+                  radius: Style.space(4)
+                  color: group.isPlugins && pkgMouse.containsMouse && !root.busy
+                    ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                    : "transparent"
 
-                  Text {
-                    id: pkgName
-                    width: Math.min(implicitWidth, (group.width - Style.space(22)) * 0.5)
-                    elide: Text.ElideRight
-                    textFormat: Text.PlainText
-                    text: modelData.name
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
+                  Row {
+                    id: pkgRow
+                    width: parent.width
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(8)
+                    leftPadding: Style.space(22)
+
+                    Text {
+                      id: pkgName
+                      width: Math.min(implicitWidth, (group.width - Style.space(22)) * 0.52)
+                      elide: Text.ElideRight
+                      textFormat: Text.PlainText
+                      text: pkgItem.modelData.name
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                    }
+
+                    Text {
+                      width: group.width - Style.space(22) - pkgName.width - parent.spacing - (group.isPlugins ? pkgUpdateIcon.implicitWidth + parent.spacing : 0) - Style.space(4)
+                      horizontalAlignment: Text.AlignRight
+                      elide: Text.ElideMiddle
+                      textFormat: Text.PlainText
+                      text: pkgItem.modelData.from + " → " + pkgItem.modelData.to
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                    }
+
+                    Text {
+                      id: pkgUpdateIcon
+                      visible: group.isPlugins
+                      textFormat: Text.PlainText
+                      text: ""
+                      color: pkgMouse.containsMouse && !root.busy ? root.foreground : root.muted
+                      opacity: root.busy ? 0.4 : (pkgMouse.containsMouse ? 1 : 0.65)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
                   }
 
-                  Text {
-                    width: group.width - Style.space(22) - pkgName.width - parent.spacing - Style.space(4)
-                    horizontalAlignment: Text.AlignRight
-                    elide: Text.ElideMiddle
-                    textFormat: Text.PlainText
-                    text: modelData.from + " → " + modelData.to
-                    color: root.muted
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
+                  MouseArea {
+                    id: pkgMouse
+                    visible: group.isPlugins
+                    anchors.fill: parent
+                    hoverEnabled: group.isPlugins
+                    enabled: group.isPlugins && !root.busy
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.updatePlugins([pkgItem.modelData.name])
+                  }
+
+                  PanelToolTip {
+                    visible: group.isPlugins && pkgMouse.containsMouse && !root.busy
+                    text: "Update " + pkgItem.modelData.name
+                    fontFamily: root.fontFamily
                   }
                 }
               }
@@ -517,8 +622,10 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             iconText: ""
-            text: root.busy ? "Updating…" : "Update now"
-            tooltipText: root.busy ? "An update is already running" : "Run omarchy-update"
+            text: root.busy ? "Updating…" : (root.pluginPending > 0 && root.nonPluginPending === 0 ? "Update plugins" : "Update now")
+            tooltipText: root.busy ? "An update is already running"
+              : (root.pluginPending > 0 && root.nonPluginPending === 0 ? "Update pending plugins"
+                : (root.pluginPending > 0 ? "Run omarchy-update and update plugins" : "Run omarchy-update"))
             fontSize: Style.font.bodySmall
             foreground: root.foreground
             fontFamily: root.fontFamily

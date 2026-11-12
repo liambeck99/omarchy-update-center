@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Liam Beckingham",
   "license": "MIT",
-  "description": "Every pending update in one bar panel (system packages, AUR, mise, and Omarchy itself), with a gentle reminder once you haven't updated in a while.",
+  "description": "Every pending update in one bar panel (system packages, AUR, mise, plugins, and Omarchy itself), with a gentle reminder once you haven't updated in a while.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Update Center",
-    "description": "Pending system, AUR, mise, and Omarchy updates, when you last updated, and a reminder once you're overdue.",
+    "description": "Pending system, AUR, mise, plugin, and Omarchy updates, when you last updated, and a reminder once you're overdue.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -25,6 +25,7 @@
       "checkSystem": true,
       "checkAur": true,
       "checkMise": true,
+      "checkPlugins": true,
       "checkOmarchy": true,
       "showCount": true,
       "highlightOverdue": true
@@ -79,6 +80,13 @@
         "type": "boolean",
         "label": "Check mise tools",
         "description": "Tools managed by mise. Hidden when mise isn't installed.",
+        "defaultValue": true
+      },
+      {
+        "key": "checkPlugins",
+        "type": "boolean",
+        "label": "Check shell plugins",
+        "description": "Git-managed Omarchy shell plugins in ~/.config/omarchy/plugins.",
         "defaultValue": true
       },
       {

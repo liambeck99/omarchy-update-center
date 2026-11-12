@@ -61,13 +61,16 @@ describe("status handling", () => {
       system: source([pkg("a"), pkg("b")]),
       aur: source([pkg("c")]),
       mise: source([], { available: false }),
+      plugins: source([pkg("foo.bar")]),
       omarchy: source([], { enabled: false })
     }
   }
 
   test("groups skips disabled and unavailable sources and keeps display order", () => {
-    expect(Model.groups(status).map((g) => g.key)).toEqual(["system", "aur"])
-    expect(Model.pendingCount(status)).toBe(3)
+    expect(Model.groups(status).map((g) => g.key)).toEqual(["system", "aur", "plugins"])
+    expect(Model.pendingCount(status)).toBe(4)
+    expect(Model.pluginPackages(status).map((p) => p.name)).toEqual(["foo.bar"])
+    expect(Model.nonPluginPendingCount(status)).toBe(3)
   })
 
   test("a failed source keeps its previous packages and is marked stale", () => {
@@ -85,7 +88,7 @@ describe("status handling", () => {
   })
 
   test("skipList follows the per-source settings", () => {
-    expect(Model.skipList({ checkAur: false, checkMise: false, checkSystem: true })).toBe("aur,mise")
+    expect(Model.skipList({ checkAur: false, checkMise: false, checkPlugins: false, checkSystem: true })).toBe("aur,mise,plugins")
     expect(Model.skipList({})).toBe("")
   })
 })

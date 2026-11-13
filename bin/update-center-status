@@ -114,8 +114,10 @@ check_mise() {
 
   if ((status == 124)); then
     source_json true true false "Timed out checking mise tools" '[]'
+  # A tool with no current version is not installed (Omarchy declares its AI
+  # CLIs as lazy, installed on first use); mise up skips it, so it is no update.
   elif ((status != 0)) || ! packages=$(jq -c '
-      to_entries | map({name: .key, from: (.value.current // ""), to: (.value.latest // "")})
+      to_entries | map(select(.value.current != null) | {name: .key, from: .value.current, to: (.value.latest // "")})
     ' <<<"${out:-{\}}" 2>/dev/null); then
     source_json true true false "$(first_line "$(cat "$err")" || echo "mise outdated failed")" '[]'
   else

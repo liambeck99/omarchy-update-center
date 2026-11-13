@@ -47,7 +47,7 @@ describe("update-center-status", () => {
       STUB_CHECKUPDATES_OUT: "librewolf 158.0.1_1-1 -> 159.0_1-1\\nomarchy 4.0.6-1 -> 4.0.7-1\\n",
       STUB_YAY_EXIT: "0",
       STUB_YAY_OUT: "zen-browser-bin 1.17-1 -> 1.18-1\\n",
-      STUB_MISE_OUT: '{"node":{"current":"26.12.1","latest":"26.13.0","requested":"latest"}}',
+      STUB_MISE_OUT: '{"node":{"current":"26.12.1","latest":"26.13.0","requested":"latest"},"amp":{"current":null,"latest":"0.0.1","requested":"latest"}}',
     })
     expect(json.lastUpdate).toBe(Date.parse("2026-10-20T10:15:00Z") / 1000)
     expect(json.busy).toBe(false)

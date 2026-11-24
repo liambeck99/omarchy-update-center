@@ -91,7 +91,13 @@ Everything is read-only and needs no root:
 - **AUR:** `yay -Qua`.
 - **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install. Lazy tools that were never installed aren't counted, because `mise up` skips them; they download the first time you run them.
 - **Flatpak:** `flatpak remote-ls --updates`, across system and user installations. Runtimes rebuilt without a version change show as "new build". `omarchy-update` doesn't update Flatpak apps, so **Update now** runs `flatpak update` itself.
-- **Plugins:** `git fetch origin HEAD` in each git-managed plugin, as `omarchy plugin update` does. Fetching only updates the plugin's git metadata, not its files. Only what **Update now** can clear is counted: `omarchy plugin update` only fast-forwards a clean checkout, so a plugin with uncommitted changes to its files ("has local edits"), commits of its own ("has local commits"), or no `origin` remote to update from ("no origin remote", checked against its other remote instead) is listed with that note, but isn't counted as waiting, in the badge or in the Plugins row. Untracked files, such as a `__pycache__` folder, don't count as edits. A plugin with no remote at all, such as one you're writing locally, isn't checked. If some plugins can't be reached, the others still show fresh results, with the unreachable ones named in the error.
+- **Plugins:** `git fetch origin HEAD` in each git-managed plugin, as `omarchy plugin update` does. Fetching only updates the plugin's git metadata, not its files. Only what **Update now** can clear is counted. `omarchy plugin update` only fast-forwards, from `origin`, so Update Center does a dry run of that same fast-forward (it changes nothing), and a plugin it can't update is listed with a note but isn't counted as waiting, in the badge or in the Plugins row:
+  - "has commits not on upstream": your own commits, or upstream rewrote its history
+  - "has local edits": uncommitted edits to files the update changes
+  - "local files in the way": untracked files with the same name as files the update adds
+  - "no origin remote": checked against its other remote instead
+
+  Edits to files the update doesn't touch, and untracked files such as a `__pycache__` folder, don't get in the way: the update keeps them, so the plugin counts. A plugin with no remote at all, such as one you're writing locally, isn't checked. If some plugins can't be reached, the others still show fresh results, with the unreachable ones named in the error.
 - **Last updated:** the most recent `starting full system upgrade` line in `/var/log/pacman.log`. It counts upgrades from `omarchy-update` and from a hand-run `pacman -Syu`.
 - **Update running:** when the widget loads and once a minute after that it checks Omarchy's update lock and pacman's `db.lck`, and checks again when an update finishes.
 

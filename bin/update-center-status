@@ -7,9 +7,10 @@
 #
 # Each source reports {enabled, available, ok, error, packages[]}, where a
 # package is {name, from, to}. A plugin that omarchy-plugin-update can't
-# fast-forward is still listed, flagged localEdits: true (uncommitted changes to
-# tracked files) or localCommits: true (commits of its own), so the panel leaves
-# it out of the count. A source that fails keeps ok=false and its error text;
+# fast-forward is still listed, flagged localCommits: true (commits upstream
+# doesn't have), localEdits: true (uncommitted edits the update would
+# overwrite), localFiles: true (untracked files it would overwrite) or
+# noOrigin: true, so the panel leaves it out of the count. A source that fails keeps ok=false and its error text;
 # the panel keeps the previous result for it, unless it also says partial: true
 # (some plugins were checked, the rest couldn't be reached). Nothing here needs
 # root: checkupdates syncs into a database of our own under ~/.cache, and
@@ -243,7 +244,8 @@ plugin_changes_url() {
 # FETCH_HEAD after showing the diff, so a check running while its prompt is open
 # must not change what gets merged.
 check_one_plugin() {
-  local dir=$1 id behind version title remote url note="" edited=false diverged=false no_origin=false
+  local dir=$1 id behind version title remote url note edited=false diverged=false in_the_way=false no_origin=false
+  local notes=()
   id=$(basename "$dir")
   # Normally "origin". A checkout that was re-pointed may only have another
   # remote: it's still checked against that one, but omarchy-plugin-update only
@@ -266,31 +268,42 @@ check_one_plugin() {
   # The manifest's name is what the panel shows; name stays the folder id,
   # which is what omarchy plugin update and the links go by.
   title=$(jq -r 'if (.name | type) == "string" then .name else empty end' "$dir/manifest.json" 2>/dev/null)
-  # omarchy-plugin-update only fast-forwards from origin. A plugin with commits
-  # of its own (HEAD not an ancestor of upstream), uncommitted changes to
-  # tracked files, or no origin remote can't be updated by it; untracked files
-  # (a __pycache__) don't get in the way. Such a plugin is listed with a note,
-  # but flagged so the panel leaves it out of the waiting count.
-  git -C "$dir" merge-base --is-ancestor HEAD refs/update-center/upstream 2>/dev/null || diverged=true
-  [[ -n $(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null) ]] && edited=true
-  if $diverged && $edited; then
-    note=", has local commits and edits"
-  elif $diverged; then
-    note=", has local commits"
-  elif $edited; then
-    note=", has local edits"
+  # omarchy-plugin-update only fast-forwards, from origin. A plugin it can't
+  # update is listed with a note, but flagged so the panel leaves it out of the
+  # waiting count:
+  # - HEAD isn't an ancestor of upstream: commits of our own, or upstream
+  #   rewrote its history. Either way it has commits upstream doesn't have.
+  # - Otherwise, a dry run of the same fast-forward (read-tree -n changes no
+  #   files and not the index) says whether local files get in the way: tracked
+  #   edits to files the update changes, or untracked files it would add. Edits
+  #   it doesn't touch, and untracked files like a __pycache__, don't block it;
+  #   the update keeps them, so the plugin counts.
+  if ! git -C "$dir" merge-base --is-ancestor HEAD refs/update-center/upstream 2>/dev/null; then
+    diverged=true
+    notes+=("has commits not on upstream")
+  elif ! git -C "$dir" read-tree -n -m -u HEAD refs/update-center/upstream >/dev/null 2>&1; then
+    if [[ -n $(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null) ]]; then
+      edited=true
+      notes+=("has local edits")
+    else
+      in_the_way=true
+      notes+=("local files in the way")
+    fi
   fi
-  $no_origin && note+=", no origin remote"
+  $no_origin && notes+=("no origin remote")
+  note=""
+  ((${#notes[@]})) && note=$(printf ', %s' "${notes[@]}")
   url=$(plugin_changes_url "$dir" "$remote")
   jq -n -c --arg name "$id" --arg from "${version:-installed}" \
     --arg to "$behind new change$( ((behind == 1)) || echo s)$note" --arg url "$url" \
-    --arg title "$title" --argjson edited "$edited" --argjson diverged "$diverged" --argjson noOrigin "$no_origin" \
+    --arg title "$title" --argjson edited "$edited" --argjson diverged "$diverged" --argjson inTheWay "$in_the_way" --argjson noOrigin "$no_origin" \
     '($title | gsub("[[:cntrl:]\\s\\p{Cf}]+"; " ") | ltrimstr(" ") | rtrimstr(" ")) as $title
      | {name: $name, from: $from, to: $to}
      + (if $title != "" and $title != $name then {title: $title} else {} end)
      + (if $url != "" then {url: $url} else {} end)
      + (if $edited then {localEdits: true} else {} end)
      + (if $diverged then {localCommits: true} else {} end)
+     + (if $inTheWay then {localFiles: true} else {} end)
      + (if $noOrigin then {noOrigin: true} else {} end)'
 }
 

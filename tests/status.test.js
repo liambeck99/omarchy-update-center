@@ -246,12 +246,42 @@ describe("update-center-status", () => {
       expect(fetchHead()).toBe(shown)
     })
 
-    test("a plugin with local edits says so", () => {
+    // What omarchy-plugin-update does: a fast-forward merge. Whether a plugin
+    // counts must match whether this works.
+    const fastForwards = (p) => {
+      const r = Bun.spawnSync(["git", "-C", p.checkout, "merge", "--ff-only", "-q", "refs/update-center/upstream"])
+      return r.exitCode === 0
+    }
+
+    test("local edits the update would overwrite say so, and aren't counted", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "edited")
+      commit(p.upstream, "manifest.json", '{"version":"1.3.0"}')
+      writeFileSync(join(p.checkout, "manifest.json"), '{"version":"1.2.3","local":true}')
+      expect(check(root).packages[0]).toMatchObject({ to: "1 new change, has local edits", localEdits: true })
+      expect(fastForwards(p)).toBe(false)
+    })
+
+    test("local edits the update doesn't touch don't get in the way, so it counts", () => {
       const root = pluginsRoot()
       const p = plugin(root, "edited")
       commit(p.upstream, "a", "1")
       writeFileSync(join(p.checkout, "manifest.json"), '{"version":"1.2.3","local":true}')
-      expect(check(root).packages[0]).toMatchObject({ to: "1 new change, has local edits", localEdits: true })
+      expect(check(root).packages).toEqual([{ name: "edited", from: "1.2.3", to: "1 new change" }])
+      expect(fastForwards(p)).toBe(true)
+      expect(readFileSync(join(p.checkout, "manifest.json"), "utf8")).toContain('"local":true')
+    })
+
+    test("an untracked file the update would add is in the way, and isn't counted", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "clash")
+      commit(p.upstream, "config.local", "upstream")
+      writeFileSync(join(p.checkout, "config.local"), "mine")
+      const pkg = check(root).packages[0]
+      expect(pkg).toMatchObject({ to: "1 new change, local files in the way", localFiles: true })
+      expect(pkg.localEdits).toBeUndefined()
+      expect(fastForwards(p)).toBe(false)
+      expect(readFileSync(join(p.checkout, "config.local"), "utf8")).toBe("mine")
     })
 
     test("an unreachable plugin is named without hiding the others", () => {
@@ -282,8 +312,19 @@ describe("update-center-status", () => {
       commit(p.upstream, "a", "1")
       commit(p.checkout, "mine", "local")
       const pkg = check(root).packages[0]
-      expect(pkg).toMatchObject({ name: "forked", to: "1 new change, has local commits", localCommits: true })
+      expect(pkg).toMatchObject({ name: "forked", to: "1 new change, has commits not on upstream", localCommits: true })
       expect(pkg.localEdits).toBeUndefined()
+    })
+
+    test("after upstream rewrites its history, the note is still true with no commits of your own", () => {
+      const root = pluginsRoot()
+      const p = plugin(root, "rewritten")
+      commit(p.upstream, "a", "1")
+      git(p.checkout, "pull", "-q", "--ff-only")
+      git(p.upstream, "reset", "-q", "--hard", "HEAD~1")
+      commit(p.upstream, "b", "2")
+      expect(check(root).packages[0]).toMatchObject({ to: "1 new change, has commits not on upstream", localCommits: true })
+      expect(fastForwards(p)).toBe(false)
     })
 
     test("a plugin without an origin remote is checked against its other remote, but flagged", () => {
@@ -301,7 +342,7 @@ describe("update-center-status", () => {
     test("a missing origin remote is noted alongside local edits", () => {
       const root = pluginsRoot()
       const p = plugin(root, "renamed")
-      commit(p.upstream, "a", "1")
+      commit(p.upstream, "manifest.json", '{"version":"1.3.0"}')
       git(p.checkout, "remote", "rename", "origin", "upstream")
       writeFileSync(join(p.checkout, "manifest.json"), '{"version":"1.2.3","local":true}')
       expect(check(root).packages[0]).toMatchObject({

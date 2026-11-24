@@ -213,7 +213,7 @@ describe("shell plugins", () => {
   })
 
   test("a plugin with commits of its own is listed but not counted, nor updated", () => {
-    const diverged = pkg("c.widget", { to: "1 new change, has local commits", localCommits: true })
+    const diverged = pkg("c.widget", { to: "1 new change, has commits not on upstream", localCommits: true })
     const s = status({ plugins: source([pkg("a.widget"), diverged]) })
     expect(Model.groups(s).find((g) => g.key === "plugins").packages).toHaveLength(2)
     expect(Model.pendingCount(s)).toBe(1)
@@ -226,6 +226,14 @@ describe("shell plugins", () => {
     expect(Model.groups(s).find((g) => g.key === "plugins").packages).toHaveLength(2)
     expect(Model.pendingCount(s)).toBe(1)
     expect(Model.updateArgs(status({ plugins: source([noOrigin]) }))).toEqual([])
+  })
+
+  test("a plugin with local files in the way is listed but not counted, nor updated", () => {
+    const blocked = pkg("e.widget", { to: "1 new change, local files in the way", localFiles: true })
+    const s = status({ plugins: source([pkg("a.widget"), blocked]) })
+    expect(Model.groups(s).find((g) => g.key === "plugins").packages).toHaveLength(2)
+    expect(Model.pendingCount(s)).toBe(1)
+    expect(Model.updateArgs(status({ plugins: source([blocked]) }))).toEqual([])
   })
 
   test("the Plugins group's own number matches the badge", () => {

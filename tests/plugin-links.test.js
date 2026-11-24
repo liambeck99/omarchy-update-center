@@ -124,7 +124,7 @@ describe("plugin change links", () => {
     const head = git(upstream, "rev-parse", "HEAD")
     const own = git(join(plugins, "e.github-forked"), "rev-parse", "HEAD")
 
-    expect(pkg).toMatchObject({ to: "1 new change, has local commits", localCommits: true })
+    expect(pkg).toMatchObject({ to: "1 new change, has commits not on upstream", localCommits: true })
     expect(own).not.toBe(shared)
     expect(pkg.url).toBe(`https://github.com/owner/plugin-e/compare/${shared}...${head}`)
   })

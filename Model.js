@@ -73,12 +73,12 @@ function displayName(pkg) {
   return typeof pkg.name === "string" ? pkg.name : ""
 }
 
-// Whether "Update now" can apply a listed update. A plugin with local edits,
-// commits of its own or no origin remote is listed with a note, but
-// omarchy-plugin-update only fast-forwards a clean checkout from origin, so it
-// never counts as waiting.
+// Whether "Update now" can apply a listed update. omarchy-plugin-update only
+// fast-forwards, from origin, so a plugin with commits upstream doesn't have,
+// local files the update would overwrite, or no origin remote is listed with a
+// note but never counts as waiting.
 function updatable(pkg) {
-  return !(pkg && (pkg.localEdits === true || pkg.localCommits === true || pkg.noOrigin === true))
+  return !(pkg && (pkg.localEdits === true || pkg.localCommits === true || pkg.localFiles === true || pkg.noOrigin === true))
 }
 
 function countUpdatable(packages) {

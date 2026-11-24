@@ -53,6 +53,9 @@ function groups(status) {
       key: SOURCES[i].key,
       label: SOURCES[i].label,
       ok: source.ok,
+      // Whether these packages come from this check: a failed source keeps
+      // the ones it last reported (see mergeStatus).
+      fresh: source.ok === true,
       error: source.error || "",
       packages: packages,
       // What the group row shows: only what Update now can clear.
@@ -95,12 +98,26 @@ function groupSummary(group) {
 // What the overdue reminder counts: the same, minus shell plugins. Plugins
 // still show and count in the badge, but never make you overdue on their own.
 function reminderCount(status) {
+  return reminderTotal(status, false)
+}
+
+function reminderTotal(status, freshOnly) {
   var rows = groups(status)
   var total = 0
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i].key !== "plugins") total += rows[i].count
+    if (rows[i].key === "plugins" || (freshOnly && !rows[i].fresh)) continue
+    total += rows[i].count
   }
   return total
+}
+
+// Whether to send the reminder now: it's due, and a check that just worked
+// found something it counts. A source that failed takes no part: its error
+// doesn't hold the reminder back (one plugin or Flatpak remote that fails on
+// every check would otherwise stop it for good), and the packages it last
+// reported may already be installed, so they can't trigger it on their own.
+function shouldNotify(plan, status) {
+  return !!(plan && plan.notifyNow) && reminderTotal(status, true) > 0
 }
 
 function hasErrors(status) {
@@ -251,7 +268,7 @@ function tooltip(plan, pending, busy) {
 if (typeof module !== "undefined") {
   module.exports = {
     SOURCES: SOURCES, parseStatus: parseStatus, mergeStatus: mergeStatus, groups: groups,
-    pendingCount: pendingCount, groupSummary: groupSummary, reminderCount: reminderCount, hasErrors: hasErrors, skipList: skipList, reminderPlan: reminderPlan,
+    pendingCount: pendingCount, groupSummary: groupSummary, reminderCount: reminderCount, hasErrors: hasErrors, shouldNotify: shouldNotify, skipList: skipList, reminderPlan: reminderPlan,
     duration: duration, ago: ago, when: when, headline: headline, reminderRow: reminderRow,
     notificationBody: notificationBody, tooltip: tooltip, updateArgs: updateArgs, shellQuote: shellQuote
   }

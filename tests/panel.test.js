@@ -30,6 +30,13 @@ describe("Panel wiring", () => {
     expect(name[0]).toMatch(/execDetached\(\["xdg-open", pkgName\.link\]\)\s*root\.close\(\)/)
   })
 
+  test("the reminder decision is the model's, not a check of every source's errors", () => {
+    const fn = qml.match(/function evaluateReminder\(\)[\s\S]*?\n  \}\n/)
+    expect(fn).not.toBeNull()
+    expect(fn[0]).toMatch(/if \(!Model\.shouldNotify\(root\.plan, root\.status\)\) return/)
+    expect(fn[0]).not.toMatch(/hasErrors/)
+  })
+
   test("group rows show the model's count, not every listed package", () => {
     expect(qml).toMatch(/text: Model\.groupSummary\(group\.modelData\)/)
     expect(qml).not.toMatch(/String\(g\.packages\.length\)/)

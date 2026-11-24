@@ -345,3 +345,35 @@ describe("update-center-status", () => {
     })
   })
 })
+
+describe("system check database", () => {
+  // checkupdates syncs into a temporary database that every caller shares by
+  // default, Omarchy's own update check included, and fails at once while
+  // another one holds its lock. The system check uses a database of its own.
+  const tmp = () => mkdtempSync(join(tmpdir(), "update-center-checkup-"))
+  const system = (env) => {
+    const dbFile = join(tmp(), "db")
+    const { json } = run({ STUB_CHECKUPDATES_EXIT: "0", STUB_CHECKUPDATES_OUT: "linux 1-1 -> 2-1\\n", STUB_CHECKUPDATES_DB_FILE: dbFile, ...env }, ["--skip", "aur,mise,flatpak,plugins"])
+    return { system: json.sources.system, db: readFileSync(dbFile, "utf8") }
+  }
+
+  test("uses its own database in the user's cache", () => {
+    const home = tmp()
+    expect(system({ HOME: home }).db).toBe(join(home, ".cache/liambeck99.update-center/checkup-db"))
+    const cache = tmp()
+    expect(system({ HOME: home, XDG_CACHE_HOME: cache }).db).toBe(join(cache, "liambeck99.update-center/checkup-db"))
+  })
+
+  test("another checkupdates holding the shared database doesn't make it fail", () => {
+    const home = tmp(), shared = tmp()
+    mkdirSync(join(shared, `checkup-db-${process.getuid()}`))
+    writeFileSync(join(shared, `checkup-db-${process.getuid()}`, "db.lck"), "")
+    const { system: source } = system({ HOME: home, TMPDIR: shared })
+    expect(source).toMatchObject({ ok: true, packages: [{ name: "linux", from: "1-1", to: "2-1" }] })
+  })
+
+  test("UPDATE_CENTER_CHECKUPDATES_DB overrides the path", () => {
+    const own = join(tmp(), "db")
+    expect(system({ HOME: tmp(), UPDATE_CENTER_CHECKUPDATES_DB: own }).db).toBe(own)
+  })
+})

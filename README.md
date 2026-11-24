@@ -24,7 +24,7 @@ Most update indicators alert you whenever something new appears. Update Center s
 - **`jq`** and **`util-linux`** (`flock`), both installed on Omarchy by default.
 - Optional: **`yay`** to check AUR packages, **`mise`** to check mise tools, **`flatpak`** to check Flatpak apps, and **`git`** to check shell plugins. If any of them is missing, its group is hidden.
 
-It needs no root, installs no hooks or services, and never changes your configuration. The only file it writes is `~/.local/state/liambeck99.update-center/state.json`, which records when you were last reminded.
+It needs no root, installs no hooks or services, and never changes your configuration. It writes two things: `~/.local/state/liambeck99.update-center/state.json`, which records when you were last reminded, and `~/.cache/liambeck99.update-center/checkup-db`, a private copy of the package lists (about 9 MB) for checking system updates.
 
 ## Install
 
@@ -54,6 +54,7 @@ The shell keeps running the old version of the widget until it restarts, so rest
 ```bash
 omarchy plugin remove liambeck99.update-center
 rm -rf ~/.local/state/liambeck99.update-center   # optional: forget when you were last reminded
+rm -rf ~/.cache/liambeck99.update-center         # optional: its copy of the package lists (about 9 MB)
 omarchy plugin enable omarchy.system-update      # optional: bring back Omarchy's own update icon
 ```
 
@@ -86,7 +87,7 @@ They're stored on the widget's entry in `~/.config/omarchy/shell.json`, which yo
 
 Everything is read-only and needs no root:
 
-- **System:** `checkupdates`, which syncs into a temporary database and never touches your real one.
+- **System:** `checkupdates`, which syncs into a separate copy of the package database and never touches your real one. Update Center keeps its own copy in `~/.cache/liambeck99.update-center/checkup-db` instead of sharing `checkupdates`' default one in `/tmp`: Omarchy's own update check uses that one, and when both check at once, one fails with "Cannot fetch updates".
 - **AUR:** `yay -Qua`.
 - **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install. Lazy tools that were never installed aren't counted, because `mise up` skips them; they download the first time you run them.
 - **Flatpak:** `flatpak remote-ls --updates`, across system and user installations. Runtimes rebuilt without a version change show as "new build". `omarchy-update` doesn't update Flatpak apps, so **Update now** runs `flatpak update` itself.

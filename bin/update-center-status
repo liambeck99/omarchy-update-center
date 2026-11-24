@@ -12,8 +12,8 @@
 # it out of the count. A source that fails keeps ok=false and its error text;
 # the panel keeps the previous result for it, unless it also says partial: true
 # (some plugins were checked, the rest couldn't be reached). Nothing here needs
-# root: checkupdates syncs into a temporary database, and yay -Qua, mise and
-# flatpak remote-ls only read.
+# root: checkupdates syncs into a database of our own under ~/.cache, and
+# yay -Qua, mise and flatpak remote-ls only read.
 #
 # A plugin's package also carries title, the name in its manifest, when that
 # differs from its folder id. It is for display only: name stays the id.
@@ -25,6 +25,12 @@ PACMAN_LOCK=${UPDATE_CENTER_PACMAN_LOCK:-/var/lib/pacman/db.lck}
 UPDATE_LOCK=${UPDATE_CENTER_UPDATE_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-update.lock}
 CHECK_TIMEOUT=${UPDATE_CENTER_TIMEOUT:-120}
 PLUGINS_DIR=${UPDATE_CENTER_PLUGINS_DIR:-${HOME:-}/.config/omarchy/plugins}
+# checkupdates syncs into a temporary database, by default one that every
+# caller shares, Omarchy's own update check included. It fails at once
+# ("Cannot fetch updates") when another run holds that database's lock, so
+# the system check keeps its own (about 9 MB of sync databases, refreshed in
+# place on each check). The panel never runs two checks at once.
+CHECKUPDATES_DB_DIR=${UPDATE_CENTER_CHECKUPDATES_DB:-${XDG_CACHE_HOME:-${HOME:-}/.cache}/liambeck99.update-center/checkup-db}
 
 # omarchy-update holds its lock for the whole run (pacman, AUR, mise), and a
 # hand-run pacman holds db.lck. Either one means an update is in progress.
@@ -71,7 +77,7 @@ check_system() {
 
   local out err status
   err=$(mktemp)
-  out=$(timeout "$CHECK_TIMEOUT" checkupdates --nocolor 2>"$err")
+  out=$(CHECKUPDATES_DB=$CHECKUPDATES_DB_DIR timeout "$CHECK_TIMEOUT" checkupdates --nocolor 2>"$err")
   status=$?
 
   # checkupdates: 0 = updates listed, 2 = none, anything else = failure.

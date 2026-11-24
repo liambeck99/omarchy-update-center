@@ -1,5 +1,13 @@
 #!/bin/bash
-# Fake checkupdates: STUB_CHECKUPDATES_EXIT, STUB_CHECKUPDATES_OUT
+# Fake checkupdates: STUB_CHECKUPDATES_EXIT, STUB_CHECKUPDATES_OUT, STUB_CHECKUPDATES_ERR.
+# Like the real one, it fails at once while another checkupdates holds the
+# lock in the database it uses (CHECKUPDATES_DB, else the shared default).
+# STUB_CHECKUPDATES_DB_FILE, if set, gets the CHECKUPDATES_DB it was given.
+[[ -n ${STUB_CHECKUPDATES_DB_FILE:-} ]] && printf '%s' "${CHECKUPDATES_DB:-}" >"$STUB_CHECKUPDATES_DB_FILE"
+if [[ -e ${CHECKUPDATES_DB:-${TMPDIR:-/tmp}/checkup-db-${UID}}/db.lck ]]; then
+  echo "==> ERROR: Cannot fetch updates" >&2
+  exit 1
+fi
 printf '%b' "${STUB_CHECKUPDATES_OUT:-}"
 [[ -n ${STUB_CHECKUPDATES_ERR:-} ]] && echo "$STUB_CHECKUPDATES_ERR" >&2
 exit "${STUB_CHECKUPDATES_EXIT:-2}"

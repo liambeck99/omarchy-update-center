@@ -244,6 +244,15 @@ describe("shell plugins", () => {
     expect(Model.groupSummary({ ...group, packages: [], count: 0, ok: false })).toBe("couldn't check")
   })
 
+  test("a plugin row shows its manifest name, else its folder id", () => {
+    expect(Model.displayName(pkg("io.github.someone.start-menu", { title: "Simple Start Menu" }))).toBe("Simple Start Menu")
+    expect(Model.displayName(pkg("io.github.someone.start-menu"))).toBe("io.github.someone.start-menu")
+    expect(Model.displayName(pkg("a.widget", { title: "  " }))).toBe("a.widget")
+    expect(Model.displayName(pkg("a.widget", { title: 7 }))).toBe("a.widget")
+    expect(Model.displayName(pkg("linux"))).toBe("linux")
+    expect(Model.displayName(null)).toBe("")
+  })
+
   test("only edited plugins waiting: nothing counts and Update now has nothing to do", () => {
     const s = status({ plugins: source([edited("b.widget")]) })
     expect(Model.pendingCount(s)).toBe(0)

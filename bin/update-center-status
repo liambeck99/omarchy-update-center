@@ -14,6 +14,9 @@
 # (some plugins were checked, the rest couldn't be reached). Nothing here needs
 # root: checkupdates syncs into a temporary database, and yay -Qua, mise and
 # flatpak remote-ls only read.
+#
+# A plugin's package also carries title, the name in its manifest, when that
+# differs from its folder id. It is for display only: name stays the id.
 
 set -uo pipefail
 
@@ -229,12 +232,12 @@ plugin_changes_url() {
 }
 
 # One plugin: fetch its upstream HEAD (as omarchy-plugin-update does) and print
-# a {name, from, to, url?} line when it is behind, or "ERR <id>" when the fetch fails.
+# a {name, from, to, url?, title?} line when it is behind, or "ERR <id>" when the fetch fails.
 # The result goes to its own ref, not FETCH_HEAD: omarchy-plugin-update merges
 # FETCH_HEAD after showing the diff, so a check running while its prompt is open
 # must not change what gets merged.
 check_one_plugin() {
-  local dir=$1 id behind version remote url note="" edited=false diverged=false no_origin=false
+  local dir=$1 id behind version title remote url note="" edited=false diverged=false no_origin=false
   id=$(basename "$dir")
   # Normally "origin". A checkout that was re-pointed may only have another
   # remote: it's still checked against that one, but omarchy-plugin-update only
@@ -254,6 +257,9 @@ check_one_plugin() {
   behind=$(git -C "$dir" rev-list --count HEAD..refs/update-center/upstream 2>/dev/null) || behind=0
   ((behind > 0)) || return 0
   version=$(jq -r '.version // empty' "$dir/manifest.json" 2>/dev/null)
+  # The manifest's name is what the panel shows; name stays the folder id,
+  # which is what omarchy plugin update and the links go by.
+  title=$(jq -r 'if (.name | type) == "string" then .name else empty end' "$dir/manifest.json" 2>/dev/null)
   # omarchy-plugin-update only fast-forwards from origin. A plugin with commits
   # of its own (HEAD not an ancestor of upstream), uncommitted changes to
   # tracked files, or no origin remote can't be updated by it; untracked files
@@ -272,8 +278,10 @@ check_one_plugin() {
   url=$(plugin_changes_url "$dir" "$remote")
   jq -n -c --arg name "$id" --arg from "${version:-installed}" \
     --arg to "$behind new change$( ((behind == 1)) || echo s)$note" --arg url "$url" \
-    --argjson edited "$edited" --argjson diverged "$diverged" --argjson noOrigin "$no_origin" \
-    '{name: $name, from: $from, to: $to}
+    --arg title "$title" --argjson edited "$edited" --argjson diverged "$diverged" --argjson noOrigin "$no_origin" \
+    '($title | gsub("[[:cntrl:]\\s\\p{Cf}]+"; " ") | ltrimstr(" ") | rtrimstr(" ")) as $title
+     | {name: $name, from: $from, to: $to}
+     + (if $title != "" and $title != $name then {title: $title} else {} end)
      + (if $url != "" then {url: $url} else {} end)
      + (if $edited then {localEdits: true} else {} end)
      + (if $diverged then {localCommits: true} else {} end)

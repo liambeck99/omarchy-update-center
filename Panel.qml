@@ -507,25 +507,35 @@ Panel {
                     // Plugins carry a link to their new changes; older cached
                     // results and other sources have none.
                     readonly property string link: typeof modelData.url === "string" ? modelData.url : ""
+                    // A plugin shows the name from its manifest; its folder id
+                    // is the tooltip.
+                    readonly property bool hasTitle: text !== modelData.name
                     width: Math.min(implicitWidth, (group.width - Style.space(22)) * 0.5)
                     elide: Text.ElideRight
                     textFormat: Text.PlainText
-                    text: modelData.name
-                    color: pkgLink.containsMouse ? Commons.Color.accent : root.foreground
-                    font.underline: pkgLink.containsMouse
+                    text: Model.displayName(modelData)
+                    color: pkgLink.containsMouse && link !== "" ? Commons.Color.accent : root.foreground
+                    font.underline: pkgLink.containsMouse && link !== ""
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
 
                     MouseArea {
                       id: pkgLink
                       anchors.fill: parent
-                      enabled: pkgName.link !== ""
+                      enabled: pkgName.link !== "" || pkgName.hasTitle
                       hoverEnabled: enabled
-                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      cursorShape: pkgName.link !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
                       onClicked: {
+                        if (pkgName.link === "") return
                         Quickshell.execDetached(["xdg-open", pkgName.link])
                         root.close()
                       }
+                    }
+
+                    PanelToolTip {
+                      visible: pkgLink.containsMouse && pkgName.hasTitle
+                      text: String(modelData.name)
+                      fontFamily: root.fontFamily
                     }
                   }
 

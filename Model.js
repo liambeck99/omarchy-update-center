@@ -65,6 +65,14 @@ function groups(status) {
   return rows
 }
 
+// What a package row shows: a plugin's manifest name (title) when it has one,
+// else its name. Display only; updates and links always go by name.
+function displayName(pkg) {
+  if (!pkg) return ""
+  if (typeof pkg.title === "string" && pkg.title.trim() !== "") return pkg.title.trim()
+  return typeof pkg.name === "string" ? pkg.name : ""
+}
+
 // Whether "Update now" can apply a listed update. A plugin with local edits,
 // commits of its own or no origin remote is listed with a note, but
 // omarchy-plugin-update only fast-forwards a clean checkout from origin, so it
@@ -270,6 +278,7 @@ if (typeof module !== "undefined") {
     SOURCES: SOURCES, parseStatus: parseStatus, mergeStatus: mergeStatus, groups: groups,
     pendingCount: pendingCount, groupSummary: groupSummary, reminderCount: reminderCount, hasErrors: hasErrors, shouldNotify: shouldNotify, skipList: skipList, reminderPlan: reminderPlan,
     duration: duration, ago: ago, when: when, headline: headline, reminderRow: reminderRow,
-    notificationBody: notificationBody, tooltip: tooltip, updateArgs: updateArgs, shellQuote: shellQuote
+    notificationBody: notificationBody, tooltip: tooltip, updateArgs: updateArgs, shellQuote: shellQuote,
+    displayName: displayName
   }
 }

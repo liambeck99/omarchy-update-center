@@ -22,12 +22,20 @@ describe("Panel wiring", () => {
   test("a package name with a url opens it and closes the panel; without one it is plain text", () => {
     const name = qml.match(/id: pkgName[\s\S]*?\n {18}\}\n/)
     expect(name).not.toBeNull()
-    expect(name[0]).toMatch(/text: modelData\.name\n/)
     expect(name[0]).toMatch(/link: typeof modelData\.url === "string" \? modelData\.url : ""/)
-    expect(name[0]).toMatch(/enabled: pkgName\.link !== ""/)
-    expect(name[0]).toMatch(/cursorShape: enabled \? Qt\.PointingHandCursor/)
-    expect(name[0]).toMatch(/font\.underline: pkgLink\.containsMouse/)
-    expect(name[0]).toMatch(/execDetached\(\["xdg-open", pkgName\.link\]\)\s*root\.close\(\)/)
+    expect(name[0]).toMatch(/cursorShape: pkgName\.link !== "" \? Qt\.PointingHandCursor/)
+    expect(name[0]).toMatch(/font\.underline: pkgLink\.containsMouse && link !== ""/)
+    expect(name[0]).toMatch(/if \(pkgName\.link === ""\) return\s*Quickshell\.execDetached\(\["xdg-open", pkgName\.link\]\)\s*root\.close\(\)/)
+  })
+
+  test("a package row shows the plugin's manifest name, with its folder id on hover", () => {
+    const name = qml.match(/id: pkgName[\s\S]*?\n {18}\}\n/)
+    expect(name).not.toBeNull()
+    expect(name[0]).toMatch(/text: Model\.displayName\(modelData\)\n/)
+    expect(name[0]).toMatch(/hasTitle: text !== modelData\.name/)
+    // Hover works for a renamed row even when it has no link.
+    expect(name[0]).toMatch(/enabled: pkgName\.link !== "" \|\| pkgName\.hasTitle/)
+    expect(name[0]).toMatch(/PanelToolTip \{\s*visible: pkgLink\.containsMouse && pkgName\.hasTitle\s*text: String\(modelData\.name\)/)
   })
 
   test("the reminder decision is the model's, not a check of every source's errors", () => {

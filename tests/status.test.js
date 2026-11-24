@@ -169,11 +169,11 @@ describe("update-center-status", () => {
       git(repo, "commit", "-qm", file)
     }
     // An upstream repo and a plugin cloned from it, as omarchy plugin add does.
-    function plugin(root, id) {
+    function plugin(root, id, manifest = '{"version":"1.2.3"}') {
       const upstream = join(root, "upstream", id)
       mkdirSync(upstream, { recursive: true })
       git(upstream, "init", "-q", "-b", "main")
-      commit(upstream, "manifest.json", '{"version":"1.2.3"}')
+      commit(upstream, "manifest.json", manifest)
       git(root, "clone", "-q", upstream, join(root, "plugins", id))
       return { upstream, checkout: join(root, "plugins", id) }
     }
@@ -198,6 +198,32 @@ describe("update-center-status", () => {
         { name: "one.behind", from: "1.2.3", to: "1 new change" },
         { name: "two.behind", from: "1.2.3", to: "2 new changes" },
       ])
+    })
+
+    test("a plugin's manifest name comes along as its title; the folder id stays its name", () => {
+      const root = pluginsRoot()
+      const named = plugin(root, "io.github.someone.start-menu", '{"name":"Simple Start Menu","version":"1.2.3"}')
+      const spaced = plugin(root, "spaced", '{"name":"  Two\\nLines\\t ","version":"1.2.3"}')
+      // A right-to-left override and a zero-width space: invisible format characters.
+      const hidden = plugin(root, "hidden", '{"name":"Start\\u200bMenu\\u202e","version":"1.2.3"}')
+      const nameless = plugin(root, "nameless")
+      const same = plugin(root, "same", '{"name":"same","version":"1.2.3"}')
+      const blank = plugin(root, "blank", '{"name":" ","version":"1.2.3"}')
+      const notText = plugin(root, "not-text", '{"name":{"en":"x"},"version":"1.2.3"}')
+      const broken = plugin(root, "broken", "{not json")
+      for (const p of [named, spaced, hidden, nameless, same, blank, notText, broken]) commit(p.upstream, "a", "1")
+      const byName = Object.fromEntries(check(root).packages.map(p => [p.name, p]))
+
+      expect(byName["io.github.someone.start-menu"]).toEqual(
+        { name: "io.github.someone.start-menu", title: "Simple Start Menu", from: "1.2.3", to: "1 new change" })
+      // One line of plain text: whitespace runs and control characters become one space.
+      expect(byName.spaced.title).toBe("Two Lines")
+      // Invisible format characters can't make a name look odd or mimic another plugin.
+      expect(byName.hidden.title).toBe("Start Menu")
+      // No usable name, or the same as the id: no title, the panel shows the id.
+      for (const id of ["nameless", "same", "blank", "not-text"]) expect(byName[id]).not.toHaveProperty("title")
+      // An unreadable manifest still lists the plugin, under its id.
+      expect(byName.broken).toEqual({ name: "broken", from: "installed", to: "1 new change" })
     })
 
     test("checking does not change the plugin's files or commit", () => {

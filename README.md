@@ -98,7 +98,7 @@ Checks run 45 seconds after login, every `checkIntervalHours`, when you open the
 
 **Update now** and the reminder run `bin/update-all`, which only updates the kinds of update that are waiting. It holds Omarchy's update lock for the whole run, runs `omarchy-plugin-update` first (it shows each plugin's changes and asks before applying them), then `flatpak update` (it lists the changes and asks too), then `omarchy-update`. When only plugins or Flatpak apps are waiting, it doesn't start a system upgrade.
 
-A source that fails to check (for example, while you're offline) shows its error, keeps its previous results, and never triggers a reminder on its own.
+A source that fails to check (for example, while you're offline) shows its error and keeps its previous results. Those results never trigger a reminder, since they may already be installed, but the failure doesn't hold back a reminder for updates the other sources just found: a plugin whose repo is gone, or a broken Flatpak remote, won't silence reminders for system updates.
 
 From a script:
 

@@ -91,9 +91,8 @@ Panel {
   function evaluateReminder() {
     if (!root.status || !root.reminderStateLoaded || root.busy) return
     root.now = Date.now() / 1000
-    if (!root.plan.notifyNow) return
-    // Errors could mean the counts are stale; only nag on a clean read.
-    if (Model.hasErrors(root.status)) return
+    // Due, and a check that just worked found something to remind about.
+    if (!Model.shouldNotify(root.plan, root.status)) return
 
     Quickshell.execDetached([
       "omarchy-notification-send", "-g", "", "-u", "normal",

@@ -252,6 +252,50 @@ describe("shell plugins", () => {
   })
 })
 
+describe("shouldNotify", () => {
+  // Overdue for 30 days, never reminded: the reminder is due on timing alone.
+  const source = (packages, extra = {}) => ({ enabled: true, available: true, ok: true, error: "", packages, ...extra })
+  const pkg = (name) => ({ name, from: "1", to: "2" })
+  const failed = (error, extra = {}) => source([], { ok: false, error, ...extra })
+  const status = (sources) => ({
+    sources: { system: source([]), aur: source([]), mise: source([]), flatpak: source([]), omarchy: source([]), plugins: source([]), ...sources },
+  })
+  const notify = (s, plan = Model.reminderPlan(NOW, NOW - 30 * DAY, null, Model.reminderCount(s), 7, 24)) =>
+    Model.shouldNotify(plan, s)
+
+  test("updates found by a clean check remind", () => {
+    expect(notify(status({ system: source([pkg("linux")]) }))).toBe(true)
+  })
+  test("an unreachable plugin doesn't stop a reminder for system updates", () => {
+    const plugins = failed("Couldn't reach: gone.widget")
+    expect(notify(status({ system: source([pkg("linux")]), plugins }))).toBe(true)
+    const partial = source([pkg("b.widget")], { ok: false, error: "Couldn't reach: gone.widget", partial: true })
+    expect(notify(status({ system: source([pkg("linux")]), plugins: partial }))).toBe(true)
+  })
+  test("a source that keeps failing doesn't stop a reminder for the others", () => {
+    expect(notify(status({ system: source([pkg("linux")]), flatpak: failed("Unable to load summary from remote flathub") }))).toBe(true)
+  })
+  test("updates only known from a failed check don't remind: they may already be installed", () => {
+    const before = status({ system: source([pkg("linux")]) })
+    const merged = Model.mergeStatus(before, status({ system: failed("offline") }))
+    expect(Model.reminderCount(merged)).toBe(1)
+    expect(notify(merged)).toBe(false)
+  })
+  test("nothing reminds when every check failed", () => {
+    const before = status({ system: source([pkg("linux")]), aur: source([pkg("yay")]) })
+    const offline = { sources: Object.fromEntries(Object.keys(before.sources).map((k) => [k, failed("offline")])) }
+    expect(notify(Model.mergeStatus(before, offline))).toBe(false)
+  })
+  test("plugins alone never remind, fresh or not", () => {
+    expect(notify(status({ plugins: source([pkg("a.widget")]) }))).toBe(false)
+  })
+  test("never before the reminder is due", () => {
+    const s = status({ system: source([pkg("linux")]) })
+    expect(notify(s, Model.reminderPlan(NOW, NOW - 2 * DAY, null, 1, 7, 24))).toBe(false)
+    expect(notify(s, Model.reminderPlan(NOW, NOW - 30 * DAY, NOW - HOUR, 1, 7, 24))).toBe(false)
+  })
+})
+
 describe("shellQuote", () => {
   test("survives one shell per quoting, spaces and quotes included", () => {
     const path = "/home/a b/it's/bin/update-all"

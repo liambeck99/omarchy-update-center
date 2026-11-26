@@ -24,7 +24,7 @@ Most update indicators alert you whenever something new appears. Update Center s
 - **`jq`** and **`util-linux`** (`flock`), both installed on Omarchy by default.
 - Optional: **`yay`** to check AUR packages, **`mise`** to check mise tools, **`flatpak`** to check Flatpak apps, and **`git`** to check shell plugins. If any of them is missing, its group is hidden.
 
-It needs no root, installs no hooks or services, and never changes your configuration. It writes two things: `~/.local/state/liambeck99.update-center/state.json`, which records when you were last reminded, and `~/.cache/liambeck99.update-center/checkup-db`, a private copy of the package lists (about 9 MB) for checking system updates.
+It needs no root, installs no hooks or system services, and never changes your configuration. It writes two things: `~/.local/state/liambeck99.update-center/state.json`, which records when you were last reminded, and `~/.cache/liambeck99.update-center/checkup-db`, a private copy of the package lists (about 9 MB) for checking system updates, with an empty `checkup-db.lock` next to it.
 
 ## Install
 
@@ -87,7 +87,7 @@ They're stored on the widget's entry in `~/.config/omarchy/shell.json`, which yo
 
 Everything is read-only and needs no root:
 
-- **System:** `checkupdates`, which syncs into a separate copy of the package database and never touches your real one. Update Center keeps its own copy in `~/.cache/liambeck99.update-center/checkup-db` instead of sharing `checkupdates`' default one in `/tmp`: Omarchy's own update check uses that one, and when both check at once, one fails with "Cannot fetch updates".
+- **System:** `checkupdates`, which syncs into a separate copy of the package database and never touches your real one. Update Center keeps its own copy in `~/.cache/liambeck99.update-center/checkup-db` instead of sharing `checkupdates`' default one in `/tmp`: Omarchy's own update check uses that one, and when both check at once, one fails with "Cannot fetch updates". Two checks of Update Center's own take turns on its copy.
 - **AUR:** `yay -Qua`.
 - **mise:** `mise outdated`, with the same release-age override `omarchy-update` uses, so counts match what an update would install. Lazy tools that were never installed aren't counted, because `mise up` skips them; they download the first time you run them.
 - **Flatpak:** `flatpak remote-ls --updates`, across system and user installations. Runtimes rebuilt without a version change show as "new build". `omarchy-update` doesn't update Flatpak apps, so **Update now** runs `flatpak update` itself.
@@ -103,6 +103,8 @@ Everything is read-only and needs no root:
 
 Checks run 45 seconds after login, every `checkIntervalHours`, when you open the panel (at most every two minutes), and after updates. The time of the last reminder is kept in `~/.local/state/liambeck99.update-center/state.json`, so restarting the shell doesn't repeat a reminder.
 
+With more than one monitor, every bar shows the widget, but the checks, the reminder and the `omarchy-shell` commands below run once, in the plugin's service (`Service.qml`). This also works under a replacement bar (a plugin of kind `bar`), whose widgets find the service through `ServiceLink.js`.
+
 **Update now** and the reminder run `bin/update-all`, which only updates the kinds of update that are waiting. It holds Omarchy's update lock for the whole run, runs `omarchy-plugin-update` first (it shows each plugin's changes and asks before applying them), then `flatpak update` (it lists the changes and asks too), then `omarchy-update`. When only plugins or Flatpak apps are waiting, it doesn't start a system upgrade.
 
 A source that fails to check (for example, while you're offline) shows its error and keeps its previous results. Those results never trigger a reminder, since they may already be installed, but the failure doesn't hold back a reminder for updates the other sources just found: a plugin whose repo is gone, or a broken Flatpak remote, won't silence reminders for system updates.
@@ -111,7 +113,7 @@ From a script:
 
 ```bash
 omarchy-shell liambeck99.update-center refresh   # check now
-omarchy-shell liambeck99.update-center toggle    # open/close the panel
+omarchy-shell liambeck99.update-center toggle    # open/close the panel on the focused monitor
 ```
 
 ## Development
@@ -119,7 +121,7 @@ omarchy-shell liambeck99.update-center toggle    # open/close the panel
 Tests need [Bun](https://bun.sh) (development only, not needed to use the plugin).
 
 ```bash
-bun test                       # logic and status-script tests (stubbed tools, no network)
+bun test                       # logic, service and status-script tests (stubbed tools, no network)
 bin/update-center-status | jq  # what the panel sees
 ```
 

@@ -2,21 +2,24 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-// Panel.qml needs the shell to run, so these only read its wiring.
+// Panel.qml and Service.qml need the shell to run, so these only read their wiring.
 const qml = readFileSync(join(import.meta.dir, "../Panel.qml"), "utf8")
+const service = readFileSync(join(import.meta.dir, "../Service.qml"), "utf8")
 
 describe("Panel wiring", () => {
-  test("the busy poll runs as soon as the widget loads", () => {
-    // Updating plugins (Update Center included) reloads the widget mid-update;
+  test("the busy poll runs as soon as the service loads", () => {
+    // Updating plugins (Update Center included) reloads the plugin mid-update;
     // a fresh one must not wait a minute to show "Updating…".
-    const timer = qml.match(/Timer \{[^}]*busyProc\.running = true[^}]*\}/)
+    const timer = service.match(/Timer \{[^}]*busyProc\.running = true[^}]*\}/)
     expect(timer).not.toBeNull()
     expect(timer[0]).toMatch(/triggeredOnStart:\s*true/)
   })
 
   test("the reminder plan counts without plugins", () => {
-    expect(qml).toMatch(/Model\.reminderPlan\(now, lastUpdate, lastReminderAt, remindable,/)
-    expect(qml).toMatch(/property int remindable: Model\.reminderCount\(status\)/)
+    for (const file of [qml, service]) {
+      expect(file).toMatch(/Model\.reminderPlan\(now, lastUpdate, lastReminderAt, remindable,/)
+      expect(file).toMatch(/property int remindable: Model\.reminderCount\(status\)/)
+    }
   })
 
   test("a package name with a url opens it and closes the panel; without one it is plain text", () => {
@@ -39,7 +42,7 @@ describe("Panel wiring", () => {
   })
 
   test("the reminder decision is the model's, not a check of every source's errors", () => {
-    const fn = qml.match(/function evaluateReminder\(\)[\s\S]*?\n  \}\n/)
+    const fn = service.match(/function evaluateReminder\(\)[\s\S]*?\n  \}\n/)
     expect(fn).not.toBeNull()
     expect(fn[0]).toMatch(/if \(!Model\.shouldNotify\(root\.plan, root\.status\)\) return/)
     expect(fn[0]).not.toMatch(/hasErrors/)

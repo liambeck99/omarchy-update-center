@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "liambeck99.update-center",
   "name": "Update Center",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Liam Beckingham",
   "license": "MIT",
   "description": "Every pending update in one bar panel (system packages, AUR, mise, Flatpak, shell plugins, and Omarchy itself), with a gentle reminder once you haven't updated in a while.",

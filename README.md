@@ -4,7 +4,7 @@ An [Omarchy](https://omarchy.org) bar widget that keeps track of **how long it's
 
 Most update indicators alert you whenever something new appears. Update Center stays quiet until your last full upgrade is older than a week (adjustable) *and* updates are actually waiting, then reminds you once a day until you update. Updating still goes through `omarchy-update`.
 
-![Update Center panel with 7 updates waiting, the System group expanded](preview.png)
+![Update Center panel with 7 updates waiting, the Flatpak and Plugins groups expanded](preview.png)
 
 ## What it shows
 

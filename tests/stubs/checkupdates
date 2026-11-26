@@ -3,10 +3,18 @@
 # Like the real one, it fails at once while another checkupdates holds the
 # lock in the database it uses (CHECKUPDATES_DB, else the shared default).
 # STUB_CHECKUPDATES_DB_FILE, if set, gets the CHECKUPDATES_DB it was given.
+# STUB_CHECKUPDATES_HOLD, if set, holds that lock for this many seconds, as a
+# slow sync does.
+db=${CHECKUPDATES_DB:-${TMPDIR:-/tmp}/checkup-db-${UID}}
 [[ -n ${STUB_CHECKUPDATES_DB_FILE:-} ]] && printf '%s' "${CHECKUPDATES_DB:-}" >"$STUB_CHECKUPDATES_DB_FILE"
-if [[ -e ${CHECKUPDATES_DB:-${TMPDIR:-/tmp}/checkup-db-${UID}}/db.lck ]]; then
+if [[ -e $db/db.lck ]]; then
   echo "==> ERROR: Cannot fetch updates" >&2
   exit 1
+fi
+if [[ -n ${STUB_CHECKUPDATES_HOLD:-} ]]; then
+  mkdir -p "$db" && : >"$db/db.lck"
+  sleep "$STUB_CHECKUPDATES_HOLD"
+  rm -f "$db/db.lck"
 fi
 printf '%b' "${STUB_CHECKUPDATES_OUT:-}"
 [[ -n ${STUB_CHECKUPDATES_ERR:-} ]] && echo "$STUB_CHECKUPDATES_ERR" >&2

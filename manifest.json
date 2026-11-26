@@ -7,10 +7,12 @@
   "license": "MIT",
   "description": "Every pending update in one bar panel (system packages, AUR, mise, Flatpak, shell plugins, and Omarchy itself), with a gentle reminder once you haven't updated in a while.",
   "kinds": [
-    "bar-widget"
+    "bar-widget",
+    "service"
   ],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "Panel.qml",
+    "service": "Service.qml"
   },
   "barWidget": {
     "displayName": "Update Center",

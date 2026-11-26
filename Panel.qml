@@ -1,33 +1,29 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
+import "ServiceLink.js" as ServiceLink
 
 // Update Center: one bar icon and popup for every pending update.
 //
 // All checking happens in bin/update-center-status, which prints one JSON
-// document; this file schedules it, keeps the last good result per source,
-// decides when to remind (Model.reminderPlan), and draws the panel.
+// document. The shell makes one of these widgets per monitor and one service
+// (Service.qml), which schedules the checks, keeps the last good result per
+// source and reminds; this file passes it the settings and draws the panel.
 Panel {
   id: root
   moduleName: "liambeck99.update-center"
-  ipcTarget: "liambeck99.update-center"
-  // Own the IpcHandler so `refresh` can sit next to open/close/toggle.
+  // The IPC target is the service's.
   manageIpc: false
 
-  readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, ""))
-  readonly property string statusScript: pluginDir + "bin/update-center-status"
-  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/liambeck99.update-center"
-  readonly property string updateScript: pluginDir + "bin/update-all"
-  // With nothing pending (no reminder fires then) fall back to a plain system update.
-  readonly property var updateArgs: {
-    var a = Model.updateArgs(status)
-    return a.length > 0 ? a : ["--system"]
-  }
-  readonly property string updateCommand: "omarchy-launch-floating-terminal-with-presentation " + Model.shellQuote(Model.shellQuote(updateScript)) + " " + updateArgs.join(" ")
+  // A replacement bar's shell has no service for its widgets (null), so the
+  // widget also follows the one registered in ServiceLink.js.
+  readonly property var shellService: bar && bar.shell ? bar.shell.serviceFor(moduleName) : null
+  property var linkedService: null
+  property var serviceListener: null
+  readonly property var service: shellService || linkedService
 
   readonly property int reminderDays: Math.max(1, setting("reminderDays", 7))
   readonly property int checkIntervalHours: Math.max(1, setting("checkIntervalHours", 6))
@@ -37,16 +33,18 @@ Panel {
   readonly property bool highlightOverdue: setting("highlightOverdue", true) !== false
   readonly property bool barCount: showCount && pending > 0
 
-  property var status: null
-  property bool checking: false
-  property bool busy: false
-  property real lastCheckStartedAt: 0
-  property var lastReminderAt: null
-  property bool reminderStateLoaded: false
-  // Set by "Update now": poll the update lock quickly until the update starts
-  // and finishes, then check again.
-  property bool awaitingUpdate: false
-  property real awaitingSince: 0
+  readonly property var serviceSettings: ({
+    reminderDays: reminderDays,
+    checkIntervalHours: checkIntervalHours,
+    reminderRepeatHours: reminderRepeatHours,
+    skip: skip
+  })
+
+  // Until there is a service, nothing is checked yet.
+  readonly property var status: service ? service.status : null
+  readonly property bool checking: service ? service.checking : false
+  readonly property bool busy: service ? service.busy : false
+  readonly property var lastReminderAt: service ? service.lastReminderAt : null
   property var expanded: ({})
 
   // Seconds; ticks so relative times stay true while the panel is open.
@@ -65,84 +63,20 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color muted: Qt.darker(foreground, 1.4)
 
+  function configureService() {
+    if (root.service) root.service.configure(root.serviceSettings)
+  }
+
   function check() {
-    if (statusProc.running) return
-    root.checking = true
-    root.lastCheckStartedAt = Date.now() / 1000
-    statusProc.command = root.skip === "" ? [root.statusScript] : [root.statusScript, "--skip", root.skip]
-    statusProc.running = true
-  }
-
-  // Opening the panel checks again, but not more than every couple of minutes.
-  function checkIfStale() {
-    if (Date.now() / 1000 - root.lastCheckStartedAt > 120) check()
-  }
-
-  function applyStatus(text) {
-    var next = Model.parseStatus(text)
-    root.checking = false
-    if (!next) return
-    root.status = Model.mergeStatus(root.status, next)
-    root.busy = next.busy === true
-    root.now = Date.now() / 1000
-    evaluateReminder()
-  }
-
-  function evaluateReminder() {
-    if (!root.status || !root.reminderStateLoaded || root.busy) return
-    root.now = Date.now() / 1000
-    // Due, and a check that just worked found something to remind about.
-    if (!Model.shouldNotify(root.plan, root.status)) return
-
-    Quickshell.execDetached([
-      "omarchy-notification-send", "-g", "", "-u", "normal",
-      "Time to update",
-      Model.notificationBody(root.now, root.lastUpdate, root.pending),
-      "--exec", "omarchy-launch-floating-terminal-with-presentation", Model.shellQuote(root.updateScript)
-    ].concat(root.updateArgs))
-    rememberReminder(Math.floor(root.now))
-  }
-
-  function rememberReminder(at) {
-    root.lastReminderAt = at
-    saveProc.command = ["sh", "-c", 'mkdir -p "$1" && printf \'{"lastReminderAt":%s}\\n\' "$2" > "$1/state.json"', "sh", root.stateDir, String(at)]
-    saveProc.running = true
-  }
-
-  function loadReminderState(text) {
-    try {
-      var state = JSON.parse(String(text || "{}"))
-      root.lastReminderAt = typeof state.lastReminderAt === "number" ? state.lastReminderAt : null
-    } catch (e) {
-      root.lastReminderAt = null
-    }
-    root.reminderStateLoaded = true
-    evaluateReminder()
+    if (root.service) root.service.check()
   }
 
   function updateNow() {
-    if (root.busy) return
-    if (root.bar) root.bar.run(root.updateCommand)
-    else Quickshell.execDetached(["sh", "-c", root.updateCommand])
-    root.awaitingUpdate = true
-    root.awaitingSince = Date.now() / 1000
+    if (root.busy || !root.service) return
+    if (root.bar) root.bar.run(root.service.updateCommand)
+    else Quickshell.execDetached(["sh", "-c", root.service.updateCommand])
+    root.service.expectUpdate()
     close()
-  }
-
-  function applyBusy(text) {
-    var wasBusy = root.busy
-    var isBusy = false
-    try { isBusy = JSON.parse(String(text || "{}")).busy === true } catch (e) {}
-    root.busy = isBusy
-
-    if (wasBusy && !isBusy) {
-      // An update just finished (from here, a terminal, or anywhere else).
-      root.awaitingUpdate = false
-      check()
-    } else if (root.awaitingUpdate && !isBusy && Date.now() / 1000 - root.awaitingSince > 120) {
-      // The terminal never took the update lock; stop polling fast.
-      root.awaitingUpdate = false
-    }
   }
 
   function toggleGroup(key) {
@@ -151,70 +85,21 @@ Panel {
     root.expanded = next
   }
 
+  Component.onCompleted: {
+    root.serviceListener = function(service) { root.linkedService = service }
+    ServiceLink.subscribe(root.serviceListener)
+    root.linkedService = ServiceLink.current()
+    configureService()
+  }
+  Component.onDestruction: ServiceLink.unsubscribe(root.serviceListener)
+  onServiceChanged: configureService()
+  onServiceSettingsChanged: configureService()
+
   onOpenedChanged: {
     if (!opened) return
     root.now = Date.now() / 1000
-    checkIfStale()
+    if (root.service) root.service.checkIfStale()
   }
-
-  onSkipChanged: if (root.status) check()
-
-  IpcHandler {
-    target: "liambeck99.update-center"
-
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function refresh(): void { root.check() }
-  }
-
-  Process {
-    id: statusProc
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.applyStatus(text) }
-    onExited: function(exitCode) { if (exitCode !== 0) root.checking = false }
-  }
-
-  Process {
-    id: busyProc
-    command: [root.statusScript, "busy"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.applyBusy(text) }
-  }
-
-  Process { id: saveProc }
-
-  FileView {
-    path: root.stateDir + "/state.json"
-    printErrors: false
-    onLoaded: root.loadReminderState(text())
-    onLoadFailed: root.loadReminderState("")
-  }
-
-  // First check shortly after login, once the network has had a moment.
-  Timer { interval: 45000; running: true; onTriggered: root.check() }
-
-  Timer {
-    interval: root.checkIntervalHours * 3600 * 1000
-    running: true
-    repeat: true
-    onTriggered: root.check()
-  }
-
-  // Cheap, offline: is an update running? Fast while one is expected. Also
-  // asks right away on load: updating plugins (Update Center included)
-  // reloads this widget mid-update, and it should say "Updating…" at once.
-  Timer {
-    interval: root.awaitingUpdate || root.busy ? 3000 : 60000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: if (!busyProc.running) busyProc.running = true
-  }
-
-  // Reminders are due at a moment, not on a check; look every ten minutes
-  // using the last result, no network needed.
-  Timer { interval: 600000; running: true; repeat: true; onTriggered: root.evaluateReminder() }
 
   Timer {
     interval: 30000

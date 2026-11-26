@@ -19,7 +19,7 @@ beforeAll(() => {
   // stub reads as "tool not installed".
   binDir = join(dir, "bin")
   mkdirSync(binDir)
-  for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env", "git", "basename", "head", "paste"]) {
+  for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env", "git", "basename", "head", "paste", "mkdir", "sleep"]) {
     symlinkSync(Bun.which(tool), join(binDir, tool))
   }
 })
@@ -31,6 +31,7 @@ function run(env = {}, args = [], { withTools = ["checkupdates", "yay", "mise", 
   const proc = Bun.spawnSync([script, ...args], {
     env: {
       PATH: binDir,
+      HOME: dir,
       UPDATE_CENTER_PACMAN_LOG: log,
       UPDATE_CENTER_PACMAN_LOCK: join(dir, "db.lck"),
       UPDATE_CENTER_UPDATE_LOCK: join(dir, "update.lock"),
@@ -122,7 +123,7 @@ describe("update-center-status", () => {
     const fresh = mkdtempSync(join(tmpdir(), "update-center-bare-"))
     const bare = join(fresh, "bin")
     mkdirSync(bare)
-    for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env"]) {
+    for (const tool of ["bash", "jq", "date", "tac", "grep", "sed", "cut", "cat", "rm", "mktemp", "timeout", "flock", "env", "mkdir"]) {
       symlinkSync(Bun.which(tool), join(bare, tool))
     }
     symlinkSync(join(stubs, "checkupdates"), join(bare, "checkupdates"))
@@ -416,5 +417,26 @@ describe("system check database", () => {
   test("UPDATE_CENTER_CHECKUPDATES_DB overrides the path", () => {
     const own = join(tmp(), "db")
     expect(system({ HOME: tmp(), UPDATE_CENTER_CHECKUPDATES_DB: own }).db).toBe(own)
+  })
+
+  // The panel, an older copy of it or a script can all run a check at once;
+  // they share the database, so the later one waits instead of failing.
+  test("two checks at once both succeed, one after the other", async () => {
+    const env = {
+      PATH: binDir, HOME: tmp(),
+      UPDATE_CENTER_PACMAN_LOG: log,
+      UPDATE_CENTER_PACMAN_LOCK: join(dir, "db.lck"),
+      UPDATE_CENTER_UPDATE_LOCK: join(dir, "update.lock"),
+      STUB_CHECKUPDATES_EXIT: "0", STUB_CHECKUPDATES_OUT: "linux 1-1 -> 2-1\\n", STUB_CHECKUPDATES_HOLD: "1",
+    }
+    const spawn = () => Bun.spawn([script, "--skip", "aur,mise,flatpak,plugins"], { env, stdout: "pipe" })
+    const first = spawn()
+    // The first one is holding its database's lock by now.
+    await Bun.sleep(300)
+    const second = spawn()
+    const sources = await Promise.all([first, second].map(async proc => JSON.parse(await new Response(proc.stdout).text()).sources.system))
+    for (const source of sources) {
+      expect(source).toMatchObject({ ok: true, packages: [{ name: "linux", from: "1-1", to: "2-1" }] })
+    }
   })
 })

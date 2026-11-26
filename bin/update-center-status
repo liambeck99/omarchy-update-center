@@ -30,8 +30,10 @@ PLUGINS_DIR=${UPDATE_CENTER_PLUGINS_DIR:-${HOME:-}/.config/omarchy/plugins}
 # caller shares, Omarchy's own update check included. It fails at once
 # ("Cannot fetch updates") when another run holds that database's lock, so
 # the system check keeps its own (about 9 MB of sync databases, refreshed in
-# place on each check). The panel never runs two checks at once.
+# place on each check). Two runs of this script share that one, so the system
+# check takes a lock next to it and the later run waits its turn.
 CHECKUPDATES_DB_DIR=${UPDATE_CENTER_CHECKUPDATES_DB:-${XDG_CACHE_HOME:-${HOME:-}/.cache}/liambeck99.update-center/checkup-db}
+CHECKUPDATES_LOCK=$CHECKUPDATES_DB_DIR.lock
 
 # omarchy-update holds its lock for the whole run (pacman, AUR, mise), and a
 # hand-run pacman holds db.lck. Either one means an update is in progress.
@@ -78,7 +80,10 @@ check_system() {
 
   local out err status
   err=$(mktemp)
-  out=$(CHECKUPDATES_DB=$CHECKUPDATES_DB_DIR timeout "$CHECK_TIMEOUT" checkupdates --nocolor 2>"$err")
+  # The wait for another run's check counts towards the timeout: timeout
+  # signals its whole process group, flock and checkupdates included.
+  mkdir -p "${CHECKUPDATES_LOCK%/*}" 2>/dev/null
+  out=$(CHECKUPDATES_DB=$CHECKUPDATES_DB_DIR timeout "$CHECK_TIMEOUT" flock "$CHECKUPDATES_LOCK" checkupdates --nocolor 2>"$err")
   status=$?
 
   # checkupdates: 0 = updates listed, 2 = none, anything else = failure.
